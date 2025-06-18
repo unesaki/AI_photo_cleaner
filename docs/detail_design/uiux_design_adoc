@@ -532,6 +532,6 @@ Dashboard
 
 * link:ai_engine_design.adoc[AI エンジン設計書] - 分析ロジック
 * link:database_design.adoc[データベース設計書] - データ構造
-* link:implementation_guide.adoc[実装ガイド] - 技術的詳細
+* link:code_guide_design.adoc[実装ガイド] - 技術的詳細
 
 IMPORTANT: デザインシステムの一貫性を保つため、新しいコンポーネント作成前にこの設計書を必ず参照してください。

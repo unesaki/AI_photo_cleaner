@@ -269,10 +269,10 @@
 
 この設計書を基に、以下の詳細設計書を順次作成：
 
-. link:uixx_design.adoc[UI/UX詳細設計書]
+. link:uiux_design.adoc[UI/UX詳細設計書]
 . link:ai_engine_design.adoc[AI エンジン設計書]  
 . link:database_design.adoc[データベース設計書]
-. link:code_guide.adoc[実装ガイド]
+. link:code_guide_design.adoc[実装ガイド]
 . link:test_design.adoc[テスト戦略書]
 
 TIP: 各設計書は独立して参照可能ですが、本書と併読することを推奨します。

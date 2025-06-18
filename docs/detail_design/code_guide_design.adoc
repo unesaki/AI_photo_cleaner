@@ -365,6 +365,6 @@ describe('AIEngine', () => {
 . **UI実装** → ユーザーインターフェース
 . **テスト・最適化** → 品質保証
 
-最終設計書: link:test_strategy.adoc[テスト戦略書]
+最終設計書: link:test_design.adoc[テスト戦略書]
 
 WARNING: AI処理は端末性能に大きく依存するため、様々な端末での動作検証を必須とします。
