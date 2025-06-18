@@ -49,3 +49,33 @@ Join our community of developers creating universal apps.
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
 # AI_photo_cleaner
+
+## Docker環境での開発
+
+このプロジェクトはDockerを使用してReact Native Expo開発環境をコンテナ化できます。
+
+### 作成されたDockerファイル
+
+- **Dockerfile**: Node.js 18、Android開発ツール、Expo CLIを含む開発環境
+- **.dockerignore**: ビルド時に除外するファイル・ディレクトリの設定
+- **docker-compose.yml**: Expo開発サーバーとポート設定を含むコンテナ設定
+
+### Docker環境の使用方法
+
+```bash
+# コンテナをビルド
+docker-compose build
+
+# コンテナを起動
+docker-compose up
+
+# バックグラウンドで起動
+docker-compose up -d
+```
+
+### 利用可能なポート
+
+- 8081: Metro bundler
+- 19000: Expo Dev Tools
+- 19001: Expo Dev Server (LAN)
+- 19002: Expo Dev Server (localhost)
