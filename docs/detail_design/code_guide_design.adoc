@@ -1,0 +1,370 @@
+= 実装ガイド
+:toc: left
+:toclevels: 3
+:sectnums:
+:icons: font
+:source-highlighter: highlight.js
+
+== 開発環境セットアップ
+
+=== 必要なツール・ライブラリ
+
+[cols="1,2,1"]
+|===
+|カテゴリ |ツール/ライブラリ |バージョン
+
+|開発環境
+|React Native CLI
+|0.72+
+
+|AI処理
+|TensorFlow.js / @tensorflow/tfjs-react-native
+|4.0+
+
+|データベース
+|react-native-sqlite-storage
+|6.0+
+
+|画像処理
+|react-native-image-picker / @react-native-camera-roll/camera-roll
+|最新
+
+|広告
+|react-native-google-mobile-ads
+|最新
+
+|分析
+|@react-native-firebase/analytics
+|最新
+|===
+
+=== プロジェクト構成
+
+[source]
+----
+src/
+├── components/          # 再利用UIコンポーネント
+│   ├── PhotoCard.js
+│   ├── ProgressCard.js
+│   └── ActionButton.js
+├── screens/            # 画面コンポーネント
+│   ├── DashboardScreen.js
+│   ├── AnalysisScreen.js
+│   └── ResultsScreen.js
+├── services/           # ビジネスロジック
+│   ├── AIEngine.js
+│   ├── DatabaseService.js
+│   └── PhotoService.js
+├── utils/              # ユーティリティ
+│   ├── constants.js
+│   └── helpers.js
+└── store/              # 状態管理
+    ├── index.js
+    └── slices/
+----
+
+== 核となる実装要件
+
+=== 1. AI エンジン実装
+
+==== TensorFlow.js セットアップ
+[source,javascript]
+----
+// AIEngine.js - 基本構造
+import * as tf from '@tensorflow/tfjs';
+import '@tensorflow/tfjs-react-native';
+
+class AIEngine {
+  constructor() {
+    this.isInitialized = false;
+    this.model = null;
+  }
+  
+  async initialize() {
+    await tf.ready();
+    this.model = await tf.loadLayersModel('path/to/model');
+    this.isInitialized = true;
+  }
+  
+  async analyzePhotos(photos) {
+    // 重複検出 → 類似検出 → 品質評価の順で処理
+    const duplicates = await this.findDuplicates(photos);
+    const similar = await this.findSimilar(photos);
+    const lowQuality = await this.evaluateQuality(photos);
+    
+    return { duplicates, similar, lowQuality };
+  }
+}
+----
+
+==== 重複検出の実装ポイント
+* Perceptual Hash計算にDCT変換を使用
+* ハミング距離による類似判定（閾値: 2以下）
+* バッチ処理で性能最適化
+
+==== 類似写真検出の実装ポイント
+* MobileNetV2で特徴量抽出（1280次元ベクトル）
+* コサイン類似度による比較（閾値: 0.85以上）
+* DBSCANクラスタリングでグループ化
+
+=== 2. データベース実装
+
+==== SQLite接続設定
+[source,javascript]
+----
+// DatabaseService.js - 接続部分のみ
+import SQLite from 'react-native-sqlite-storage';
+
+class DatabaseService {
+  constructor() {
+    this.db = null;
+  }
+  
+  async initialize() {
+    this.db = await SQLite.openDatabase({
+      name: 'photo_cleaner.db',
+      location: 'default',
+      createFromLocation: '~www/photo_cleaner.db'
+    });
+    
+    await this.createTables();
+  }
+  
+  async createTables() {
+    // テーブル作成SQL実行
+    await this.db.executeSql(CREATE_PHOTOS_TABLE);
+    await this.db.executeSql(CREATE_DUPLICATE_GROUPS_TABLE);
+    // ... 他のテーブル
+  }
+}
+----
+
+==== データ操作の実装方針
+* トランザクションを活用した整合性保証
+* インデックスを活用した高速検索
+* バッチ処理による性能向上
+
+=== 3. 写真アクセス実装
+
+==== 権限管理
+[source,javascript]
+----
+// PhotoService.js - 権限部分のみ
+import { CameraRoll } from '@react-native-camera-roll/camera-roll';
+import { PermissionsAndroid } from 'react-native';
+
+class PhotoService {
+  async requestPermissions() {
+    if (Platform.OS === 'android') {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE
+      );
+      return granted === PermissionsAndroid.RESULTS.GRANTED;
+    }
+    // iOS は Info.plist で設定
+    return true;
+  }
+  
+  async getPhotos(limit = 1000) {
+    const photos = await CameraRoll.getPhotos({
+      first: limit,
+      assetType: 'Photos',
+      include: ['filename', 'fileSize', 'imageSize']
+    });
+    return photos.edges.map(edge => edge.node);
+  }
+}
+----
+
+== パフォーマンス実装要件
+
+=== メモリ管理戦略
+
+==== Tensor管理
+* 使用後の即座なdispose()実行
+* バッチサイズの動的調整（端末性能に応じて）
+* メモリ使用量の監視とアラート
+
+==== 画像データ管理
+* 分析用は最大512×512に制限
+* 高解像度は必要時のみ読み込み
+* キャッシュサイズの上限設定
+
+=== 並列処理実装
+
+==== バックグラウンド処理
+[source,javascript]
+----
+// 並列処理の基本パターン
+async processInBatches(photos, batchSize = 50) {
+  const batches = this.createBatches(photos, batchSize);
+  const results = [];
+  
+  for (const batch of batches) {
+    const batchResults = await Promise.all(
+      batch.map(photo => this.processPhoto(photo))
+    );
+    results.push(...batchResults);
+    
+    // UI更新とメモリ解放
+    await this.updateProgress(results.length);
+    await this.sleep(10); // UI応答性確保
+  }
+  
+  return results;
+}
+----
+
+== UI実装要件
+
+=== 状態管理設計
+
+==== Redux Toolkit基本構造
+[source,javascript]
+----
+// store/slices/analysisSlice.js - 基本構造のみ
+import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+
+export const analyzePhotos = createAsyncThunk(
+  'analysis/analyzePhotos',
+  async (photos, { dispatch }) => {
+    // AI分析実行
+    // 進捗更新をdispatch
+    // 結果をreturn
+  }
+);
+
+const analysisSlice = createSlice({
+  name: 'analysis',
+  initialState: {
+    status: 'idle', // idle, loading, completed, error
+    progress: 0,
+    results: null
+  },
+  reducers: {
+    updateProgress: (state, action) => {
+      state.progress = action.payload;
+    }
+  }
+});
+----
+
+=== コンポーネント実装指針
+
+==== 再利用性の確保
+* Props型定義の明確化
+* デフォルト値の適切な設定
+* コンポーネントの単一責任原則
+
+==== アニメーション実装
+* React Native Animatedを活用
+* 60fps維持のための最適化
+* ユーザー設定による無効化対応
+
+== エラーハンドリング実装
+
+=== 階層的エラー処理
+
+[cols="1,2,2"]
+|===
+|レベル |対象 |実装方針
+
+|アプリレベル
+|致命的エラー
+|ErrorBoundary + Crashlytics送信
+
+|機能レベル
+|AI処理エラー
+|フォールバック処理 + ユーザー通知
+
+|コンポーネントレベル
+|UI操作エラー
+|ローカルエラー表示 + 再試行オプション
+|===
+
+=== AI処理エラーのフォールバック
+
+[source,javascript]
+----
+// エラー処理の基本パターン
+async analyzeWithFallback(photos) {
+  try {
+    return await this.fullAIAnalysis(photos);
+  } catch (error) {
+    console.warn('Full AI analysis failed, using fallback');
+    return await this.basicAnalysis(photos); // 軽量版
+  }
+}
+----
+
+== テスト実装要件
+
+=== ユニットテスト対象
+
+==== 優先度高
+* AI分析エンジンの精度
+* データベース操作の整合性
+* 写真削除処理の安全性
+
+==== テスト例
+[source,javascript]
+----
+// __tests__/AIEngine.test.js - 基本例のみ
+describe('AIEngine', () => {
+  test('重複写真検出の精度', async () => {
+    const duplicatePhotos = [mockPhoto1, mockPhoto1]; // 同一写真
+    const result = await aiEngine.findDuplicates(duplicatePhotos);
+    expect(result.length).toBe(1); // 1つのグループ
+    expect(result[0].photos.length).toBe(2); // 2枚の重複
+  });
+});
+----
+
+== デプロイメント要件
+
+=== ビルド最適化
+
+==== Bundle分析と最適化
+* Metro bundlerの設定調整
+* 未使用ライブラリの除去
+* AI モデルの量子化適用
+
+==== プラットフォーム別設定
+* iOS: Info.plist の権限設定
+* Android: permissions の適切な設定
+* ProGuard設定（Android Release）
+
+=== ストア申請対応
+
+==== 必須対応項目
+* プライバシーポリシーの明記
+* データ使用目的の明確化
+* 年齢制限の適切な設定（4+推奨）
+* アクセシビリティ対応の実装
+
+== セキュリティ実装要件
+
+=== データ保護
+* 写真データの端末外送信禁止
+* 分析結果の暗号化保存（将来対応）
+* ユーザー識別情報の匿名化
+
+=== 権限最小化
+* 必要最小限の権限のみ要求
+* 権限拒否時の適切なフォールバック
+* 透明性のある権限説明
+
+== 次のステップ
+
+実装開始時の推奨順序：
+
+. **環境セットアップ** → 基本プロジェクト作成
+. **データベース実装** → 永続化層の確立  
+. **写真アクセス実装** → 基本データ取得
+. **AI エンジン実装** → 核となる機能
+. **UI実装** → ユーザーインターフェース
+. **テスト・最適化** → 品質保証
+
+最終設計書: link:test_strategy.adoc[テスト戦略書]
+
+WARNING: AI処理は端末性能に大きく依存するため、様々な端末での動作検証を必須とします。

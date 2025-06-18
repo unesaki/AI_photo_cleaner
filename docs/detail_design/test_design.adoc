@@ -1,0 +1,466 @@
+= テスト戦略書
+:toc: left
+:toclevels: 3
+:sectnums:
+:icons: font
+:source-highlighter: highlight.js
+
+== テスト全体方針
+
+=== 品質目標
+
+[cols="1,1,2"]
+|===
+|指標 |目標値 |測定方法
+
+|AI検出精度
+|95%以上
+|正解データセットでの検証
+
+|アプリクラッシュ率
+|0.1%以下
+|Firebase Crashlytics
+
+|ユーザータスク完了率
+|90%以上
+|ユーザビリティテスト
+
+|レスポンス時間
+|3秒以内
+|分析開始から結果表示まで
+|===
+
+=== テストピラミッド戦略
+
+[source]
+----
+                    E2E テスト
+                   (少数・重要フロー)
+                  ┌─────────────────┐
+                 │  手動テスト      │
+                └─────────────────┘
+              ┌─────────────────────────┐
+             │   統合テスト            │  
+             │ (API・DB・AI連携)        │
+            └─────────────────────────┘
+          ┌─────────────────────────────────┐
+         │        ユニットテスト           │
+         │ (関数・コンポーネント・ロジック) │
+        └─────────────────────────────────┘
+----
+
+== ユニットテスト
+
+=== AI エンジンテスト
+
+==== 重複検出精度テスト
+[source,javascript]
+----
+describe('DuplicateDetector', () => {
+  test('完全一致の検出', async () => {
+    const photos = [
+      { id: 1, hash: 'abc123' },
+      { id: 2, hash: 'abc123' }, // 同一
+      { id: 3, hash: 'def456' }
+    ];
+    
+    const groups = detector.findDuplicateGroups(photos);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].photos).toHaveLength(2);
+  });
+  
+  test('類似写真の誤検出回避', async () => {
+    const photos = [
+      { id: 1, hash: 'abc123' },
+      { id: 2, hash: 'abc789' } // 類似だが重複ではない
+    ];
+    
+    const groups = detector.findDuplicateGroups(photos);
+    expect(groups).toHaveLength(0);
+  });
+});
+----
+
+==== 品質評価テスト
+[source,javascript]
+----
+test('品質スコアの一貫性', async () => {
+  const highQualityPhoto = createMockPhoto('high_quality.jpg');
+  const lowQualityPhoto = createMockPhoto('blurry.jpg');
+  
+  const score1 = await evaluator.evaluateQuality(highQualityPhoto);
+  const score2 = await evaluator.evaluateQuality(lowQualityPhoto);
+  
+  expect(score1.score).toBeGreaterThan(score2.score);
+  expect(score1.recommendation).toBe('keep');
+  expect(score2.recommendation).toBe('delete');
+});
+----
+
+=== データベーステスト
+
+==== CRUD操作テスト
+[source,javascript]
+----
+describe('DatabaseService', () => {
+  beforeEach(async () => {
+    await db.clearAllTables();
+  });
+  
+  test('写真データの保存・取得', async () => {
+    const photoData = { 
+      local_identifier: 'test123',
+      file_size: 1024000,
+      quality_score: 0.8
+    };
+    
+    const id = await db.savePhoto(photoData);
+    const retrieved = await db.getPhoto(id);
+    
+    expect(retrieved.quality_score).toBe(0.8);
+  });
+  
+  test('重複グループの整合性', async () => {
+    const group = await db.createDuplicateGroup([photo1, photo2]);
+    const photos = await db.getGroupPhotos(group.id);
+    
+    expect(photos).toHaveLength(2);
+  });
+});
+----
+
+=== UIコンポーネントテスト
+
+==== PhotoCard テスト
+[source,javascript]
+----
+import { render, fireEvent } from '@testing-library/react-native';
+
+test('PhotoCard の選択状態', () => {
+  const mockOnSelect = jest.fn();
+  const { getByTestId } = render(
+    <PhotoCard 
+      photo={mockPhoto}
+      selected={false}
+      onSelect={mockOnSelect}
+    />
+  );
+  
+  fireEvent.press(getByTestId('photo-card'));
+  expect(mockOnSelect).toHaveBeenCalledWith(mockPhoto);
+});
+----
+
+== 統合テスト
+
+=== AI分析フロー統合テスト
+
+==== エンドツーエンド分析
+[source,javascript]
+----
+describe('完全分析フロー', () => {
+  test('写真読み込み → AI分析 → 結果保存', async () => {
+    // 1. テスト用写真データ準備
+    const testPhotos = await loadTestPhotos();
+    
+    // 2. AI分析実行
+    const analysisResult = await aiEngine.analyzePhotos(testPhotos);
+    
+    // 3. 結果検証
+    expect(analysisResult.duplicates).toBeDefined();
+    expect(analysisResult.similar).toBeDefined();
+    expect(analysisResult.lowQuality).toBeDefined();
+    
+    // 4. データベース保存確認
+    const savedSession = await db.getLatestSession();
+    expect(savedSession.status).toBe('completed');
+  });
+});
+----
+
+=== データ整合性テスト
+
+==== 削除操作の安全性
+[source,javascript]
+----
+test('削除操作の トランザクション整合性', async () => {
+  // 重複グループ作成
+  const group = await db.createDuplicateGroup([photo1, photo2]);
+  
+  // 削除実行
+  await photoService.deletePhotos([photo2.id]);
+  
+  // 整合性確認
+  const remainingPhotos = await db.getGroupPhotos(group.id);
+  expect(remainingPhotos).toHaveLength(1);
+  expect(remainingPhotos[0].id).toBe(photo1.id);
+});
+----
+
+== E2Eテスト
+
+=== 主要ユーザーフロー
+
+==== 分析～削除完了フロー
+[source,javascript]
+----
+describe('ユーザージャーニー', () => {
+  test('新規ユーザーの初回利用', async () => {
+    // 1. アプリ起動
+    await device.launchApp();
+    
+    // 2. 権限許可
+    await element(by.text('写真アクセスを許可')).tap();
+    
+    // 3. 分析開始
+    await element(by.id('analyze-button')).tap();
+    
+    // 4. 分析完了待機
+    await waitFor(element(by.id('results-screen')))
+      .toBeVisible()
+      .withTimeout(120000);
+    
+    // 5. 重複写真削除
+    await element(by.id('delete-duplicates')).tap();
+    await element(by.text('削除')).tap();
+    
+    // 6. 完了確認
+    await expect(element(by.text('削除完了'))).toBeVisible();
+  });
+});
+----
+
+=== エラーケーステスト
+
+==== 権限拒否時の動作
+[source,javascript]
+----
+test('写真アクセス権限拒否時の適切な案内', async () => {
+  await device.launchApp();
+  await element(by.text('許可しない')).tap();
+  
+  await expect(element(by.text('権限が必要です')))
+    .toBeVisible();
+  await expect(element(by.text('設定を開く')))
+    .toBeVisible();
+});
+----
+
+== パフォーマンステスト
+
+=== 負荷テスト
+
+==== 大量写真処理
+[cols="1,2,1"]
+|===
+|写真数 |想定処理時間 |メモリ上限
+
+|100枚
+|30秒以内
+|256MB
+
+|1,000枚
+|5分以内
+|512MB
+
+|5,000枚
+|20分以内
+|1GB
+|===
+
+==== メモリリークテスト
+[source,javascript]
+----
+test('長時間処理でのメモリリーク確認', async () => {
+  const initialMemory = await getMemoryUsage();
+  
+  // 大量処理実行
+  for (let i = 0; i < 10; i++) {
+    await aiEngine.processLargeBatch(testPhotos);
+    await sleep(1000);
+  }
+  
+  const finalMemory = await getMemoryUsage();
+  const memoryIncrease = finalMemory - initialMemory;
+  
+  expect(memoryIncrease).toBeLessThan(100 * 1024 * 1024); // 100MB以下
+});
+----
+
+== ユーザビリティテスト
+
+=== テストシナリオ
+
+==== 基本タスク
+. 初回起動から分析完了まで
+. 重複写真の確認・削除
+. 類似写真グループの最適写真選択
+. 設定変更（AI閾値調整）
+
+==== 測定指標
+* **タスク完了率**: 90%以上
+* **タスク完了時間**: 各5分以内
+* **エラー発生率**: 10%以下
+* **満足度スコア**: 4.0/5.0以上
+
+=== A/Bテスト計画
+
+[cols="1,2,2,1"]
+|===
+|要素 |パターンA |パターンB |測定指標
+
+|メインボタン色
+|Blue (#3b82f6)
+|Green (#22c55e)
+|タップ率
+
+|進捗表示
+|円形プログレス
+|線形プログレス
+|ユーザー満足度
+
+|削除確認
+|モーダルダイアログ
+|インライン確認
+|操作完了率
+|===
+
+== セキュリティテスト
+
+=== プライバシー保護
+
+==== データ送信監視
+[source,javascript]
+----
+test('写真データの外部送信なし', async () => {
+  const networkMonitor = new NetworkMonitor();
+  
+  await aiEngine.analyzePhotos(testPhotos);
+  
+  const requests = networkMonitor.getRequests();
+  const imageDataRequests = requests.filter(req => 
+    req.body && req.body.includes('image')
+  );
+  
+  expect(imageDataRequests).toHaveLength(0);
+});
+----
+
+==== 権限最小化確認
+* 要求権限が仕様書と一致するか
+* 不要な権限を要求していないか
+* 権限拒否時の適切な動作
+
+== テスト自動化
+
+=== CI/CD パイプライン
+
+==== 自動テスト実行
+[source,yaml]
+----
+# GitHub Actions 例
+name: Test Pipeline
+on: [push, pull_request]
+
+jobs:
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run Unit Tests
+        run: npm test
+      
+  integration-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run Integration Tests
+        run: npm run test:integration
+        
+  e2e-test:
+    runs-on: macos-latest
+    steps:
+      - name: Run E2E Tests
+        run: detox test --configuration ios.sim.release
+----
+
+=== テストデータ管理
+
+==== モックデータセット
+* **重複写真セット**: 完全一致・部分一致・非一致
+* **類似写真セット**: 高類似・中類似・低類似
+* **品質評価セット**: 高品質・中品質・低品質
+* **大量データセット**: 性能テスト用（1000枚+）
+
+== 品質保証プロセス
+
+=== リリース判定基準
+
+[cols="1,1,2"]
+|===
+|テスト種類 |合格基準 |必須/推奨
+
+|ユニットテスト
+|カバレッジ80%以上
+|必須
+
+|統合テスト
+|全シナリオ成功
+|必須
+
+|E2Eテスト
+|主要フロー成功
+|必須
+
+|パフォーマンス
+|目標値以内
+|必須
+
+|ユーザビリティ
+|満足度4.0以上
+|推奨
+|===
+
+=== 段階的テスト展開
+
+. **Alpha版**: 開発チーム内（5名）
+. **Beta版**: クローズドテスト（50名）
+. **RC版**: オープンベータ（500名）
+. **正式版**: 一般リリース
+
+== 運用テスト
+
+=== 本番監視
+
+==== 主要メトリクス
+* クラッシュ率の監視
+* AI分析成功率の追跡
+* ユーザー満足度の継続測定
+* パフォーマンス指標の監視
+
+==== アラート設定
+* クラッシュ率 > 1%
+* 分析失敗率 > 10%
+* 平均処理時間 > 5分
+
+=== 継続的改善
+
+==== フィードバックループ
+. ユーザーフィードバック収集
+. 問題分析・原因特定
+. 修正・改善実装
+. テスト・検証
+. リリース・効果測定
+
+== 次のステップ
+
+テスト実装の推奨順序：
+
+. **ユニットテスト** → 各モジュールの品質確保
+. **統合テスト** → システム全体の整合性確認
+. **E2Eテスト** → ユーザー体験の検証
+. **パフォーマンステスト** → 実用性能の確認
+. **ユーザビリティテスト** → 使いやすさの向上
+
+すべての設計書が完成しました。
+link:main_design.adoc[メイン設計書] に戻って全体確認を推奨します。
+
+TIP: テストは実装と並行して進めることで、品質の高いアプリケーションを効率的に開発できます。

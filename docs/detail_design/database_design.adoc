@@ -1,0 +1,701 @@
+= データベース設計書
+:toc: left
+:toclevels: 3
+:sectnums:
+:icons: font
+:source-highlighter: highlight.js
+
+== データベース概要
+
+=== 設計方針
+
+==== 基本戦略
+* **ローカル優先**: 写真データは端末内で完結
+* **高速検索**: インデックス最適化による高速クエリ
+* **データ整合性**: 外部キー制約による関連性保証
+* **プライバシー保護**: 個人データの外部送信なし
+
+==== 技術選択
+[cols="1,2,3"]
+|===
+|項目 |選択技術 |理由
+
+|データベースエンジン
+|SQLite
+|軽量・高速・React Native標準サポート
+
+|ORM
+|直接SQL + カスタムラッパー
+|性能最適化・細かい制御が可能
+
+|バックアップ
+|端末ローカルファイル
+|プライバシー保護・オフライン対応
+
+|暗号化
+|SQLCipher（将来対応）
+|機密データ保護
+|===
+
+=== データ量見積もり
+
+==== 想定データ規模
+[cols="1,1,1,2"]
+|===
+|データ種類 |1レコードサイズ |想定レコード数 |総容量
+
+|写真メタデータ
+|200 bytes
+|10,000枚
+|2 MB
+
+|分析結果
+|150 bytes
+|10,000枚
+|1.5 MB
+
+|グループ情報
+|100 bytes
+|1,000グループ
+|100 KB
+
+|設定・履歴
+|50 bytes
+|1,000レコード
+|50 KB
+
+|**合計**
+|-
+|-
+|**約4 MB**
+|===
+
+== テーブル設計
+
+=== 1. photos テーブル
+
+==== 基本仕様
+写真の基本情報とAI分析結果を保存
+
+[source,sql]
+----
+CREATE TABLE photos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    local_identifier TEXT UNIQUE NOT NULL,
+    file_path TEXT,
+    file_name TEXT,
+    file_size INTEGER,
+    width INTEGER,
+    height INTEGER,
+    creation_date DATETIME,
+    modification_date DATETIME,
+    
+    -- AI分析結果
+    hash_value TEXT,
+    quality_score REAL DEFAULT 0.0,
+    sharpness_score REAL,
+    brightness_score REAL,
+    contrast_score REAL,
+    noise_score REAL,
+    composition_score REAL,
+    
+    -- 分類フラグ
+    is_duplicate BOOLEAN DEFAULT FALSE,
+    is_similar BOOLEAN DEFAULT FALSE,
+    is_low_quality BOOLEAN DEFAULT FALSE,
+    
+    -- メタ情報
+    analysis_date DATETIME,
+    analysis_version TEXT DEFAULT '1.0',
+    is_deleted BOOLEAN DEFAULT FALSE,
+    
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+----
+
+==== カラム詳細説明
+
+[cols="1,1,3"]
+|===
+|カラム名 |型 |説明
+
+|local_identifier
+|TEXT
+|端末内の一意識別子（iOS: PHAsset localIdentifier）
+
+|hash_value
+|TEXT
+|Perceptual Hash値（64bit → 16文字hex）
+
+|quality_score
+|REAL
+|総合品質スコア（0.0-1.0）
+
+|sharpness_score
+|REAL
+|鮮明度スコア（0.0-1.0）
+
+|analysis_version
+|TEXT
+|AI分析エンジンのバージョン
+
+|is_deleted
+|BOOLEAN
+|論理削除フラグ（物理削除前の状態）
+|===
+
+==== インデックス設計
+
+[source,sql]
+----
+-- 重複検出用（高速ハッシュ検索）
+CREATE INDEX idx_photos_hash ON photos(hash_value) 
+WHERE hash_value IS NOT NULL;
+
+-- 品質フィルタリング用
+CREATE INDEX idx_photos_quality ON photos(quality_score, is_low_quality);
+
+-- 分析日付検索用
+CREATE INDEX idx_photos_analysis_date ON photos(analysis_date);
+
+-- 作成日検索用（タイムライン表示）
+CREATE INDEX idx_photos_creation_date ON photos(creation_date);
+
+-- 分類検索用（複合インデックス）
+CREATE INDEX idx_photos_classification 
+ON photos(is_duplicate, is_similar, is_low_quality, is_deleted);
+----
+
+=== 2. duplicate_groups テーブル
+
+==== 基本仕様
+重複写真のグループ情報を管理
+
+[source,sql]
+----
+CREATE TABLE duplicate_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_hash TEXT UNIQUE NOT NULL,
+    photo_count INTEGER DEFAULT 0,
+    total_size INTEGER DEFAULT 0,
+    recommended_keep_id INTEGER,
+    confidence_score REAL DEFAULT 1.0,
+    
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (recommended_keep_id) REFERENCES photos(id)
+);
+----
+
+==== 関連テーブル: duplicate_group_photos
+
+[source,sql]
+----
+CREATE TABLE duplicate_group_photos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    photo_id INTEGER NOT NULL,
+    is_recommended_keep BOOLEAN DEFAULT FALSE,
+    
+    FOREIGN KEY (group_id) REFERENCES duplicate_groups(id) ON DELETE CASCADE,
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
+    
+    UNIQUE(group_id, photo_id)
+);
+
+CREATE INDEX idx_dgp_group ON duplicate_group_photos(group_id);
+CREATE INDEX idx_dgp_photo ON duplicate_group_photos(photo_id);
+----
+
+=== 3. similar_groups テーブル
+
+==== 基本仕様
+類似写真のグループ情報を管理
+
+[source,sql]
+----
+CREATE TABLE similar_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    similarity_score REAL NOT NULL,
+    photo_count INTEGER DEFAULT 0,
+    total_size INTEGER DEFAULT 0,
+    recommended_keep_id INTEGER,
+    cluster_algorithm TEXT DEFAULT 'dbscan',
+    
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (recommended_keep_id) REFERENCES photos(id)
+);
+----
+
+==== 関連テーブル: similar_group_photos
+
+[source,sql]
+----
+CREATE TABLE similar_group_photos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    photo_id INTEGER NOT NULL,
+    similarity_to_center REAL,
+    is_recommended_keep BOOLEAN DEFAULT FALSE,
+    
+    FOREIGN KEY (group_id) REFERENCES similar_groups(id) ON DELETE CASCADE,
+    FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
+    
+    UNIQUE(group_id, photo_id)
+);
+
+CREATE INDEX idx_sgp_group ON similar_group_photos(group_id);
+CREATE INDEX idx_sgp_photo ON similar_group_photos(photo_id);
+CREATE INDEX idx_sgp_similarity ON similar_group_photos(similarity_to_center);
+----
+
+=== 4. analysis_sessions テーブル
+
+==== 基本仕様
+分析セッションの実行履歴と統計情報
+
+[source,sql]
+----
+CREATE TABLE analysis_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_uuid TEXT UNIQUE NOT NULL,
+    
+    -- 分析対象
+    total_photos INTEGER NOT NULL,
+    analyzed_photos INTEGER DEFAULT 0,
+    
+    -- 検出結果
+    duplicates_found INTEGER DEFAULT 0,
+    similar_groups_found INTEGER DEFAULT 0,
+    low_quality_found INTEGER DEFAULT 0,
+    
+    -- 容量情報
+    total_size_analyzed INTEGER DEFAULT 0,
+    potential_space_saved INTEGER DEFAULT 0,
+    actual_space_saved INTEGER DEFAULT 0,
+    
+    -- 処理時間
+    start_time DATETIME NOT NULL,
+    end_time DATETIME,
+    duration_seconds INTEGER,
+    
+    -- ステータス
+    status TEXT DEFAULT 'running', -- running, completed, cancelled, error
+    error_message TEXT,
+    
+    -- AI設定
+    similarity_threshold REAL DEFAULT 0.85,
+    quality_threshold REAL DEFAULT 0.4,
+    analysis_version TEXT DEFAULT '1.0',
+    
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_sessions_status ON analysis_sessions(status, start_time);
+CREATE INDEX idx_sessions_date ON analysis_sessions(start_time);
+----
+
+=== 5. user_settings テーブル
+
+==== 基本仕様
+ユーザー設定とアプリ設定を保存
+
+[source,sql]
+----
+CREATE TABLE user_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    value_type TEXT DEFAULT 'string', -- string, number, boolean, json
+    category TEXT DEFAULT 'general',
+    description TEXT,
+    
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+----
+
+==== 初期データ設定
+
+[source,sql]
+----
+-- AI分析設定
+INSERT INTO user_settings VALUES 
+('similarity_threshold', '0.85', 'number', 'ai', '類似度判定閾値'),
+('quality_threshold', '0.4', 'number', 'ai', '品質判定閾値'),
+('auto_delete_duplicates', 'false', 'boolean', 'ai', '重複写真自動削除'),
+('auto_select_best', 'true', 'boolean', 'ai', '最適写真自動選択'),
+
+-- UI設定
+('show_analysis_progress', 'true', 'boolean', 'ui', '分析進捗表示'),
+('confirm_before_delete', 'true', 'boolean', 'ui', '削除前確認'),
+('animate_transitions', 'true', 'boolean', 'ui', 'アニメーション有効'),
+
+-- プレミアム機能
+('is_premium_user', 'false', 'boolean', 'premium', 'プレミアムユーザー'),
+('unlimited_analysis', 'false', 'boolean', 'premium', '無制限分析'),
+('last_premium_check', '', 'string', 'premium', '最終プレミアム確認日'),
+
+-- アプリ設定
+('first_launch_completed', 'false', 'boolean', 'app', '初回起動完了'),
+('tutorial_completed', 'false', 'boolean', 'app', 'チュートリアル完了'),
+('app_version', '1.0.0', 'string', 'app', 'アプリバージョン');
+----
+
+=== 6. deletion_history テーブル
+
+==== 基本仕様
+削除操作の履歴（復元機能用）
+
+[source,sql]
+----
+CREATE TABLE deletion_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER,
+    photo_id INTEGER NOT NULL,
+    deletion_type TEXT NOT NULL, -- duplicate, similar, low_quality, manual
+    group_id INTEGER,
+    group_type TEXT, -- duplicate_group, similar_group
+    
+    -- 削除前の情報（復元用）
+    original_file_path TEXT,
+    original_file_size INTEGER,
+    deletion_reason TEXT,
+    
+    deleted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (session_id) REFERENCES analysis_sessions(id),
+    FOREIGN KEY (photo_id) REFERENCES photos(id)
+);
+
+CREATE INDEX idx_deletion_session ON deletion_history(session_id);
+CREATE INDEX idx_deletion_type ON deletion_history(deletion_type, deleted_at);
+CREATE INDEX idx_deletion_date ON deletion_history(deleted_at);
+----
+
+== クエリ設計
+
+=== 基本検索クエリ
+
+==== 重複写真の検索
+
+[source,sql]
+----
+-- 重複グループ一覧取得
+SELECT 
+    dg.id,
+    dg.group_hash,
+    dg.photo_count,
+    dg.total_size,
+    p.file_name as recommended_file_name
+FROM duplicate_groups dg
+LEFT JOIN photos p ON dg.recommended_keep_id = p.id
+WHERE dg.photo_count > 1
+ORDER BY dg.total_size DESC;
+
+-- 特定グループの重複写真取得
+SELECT 
+    p.id,
+    p.file_name,
+    p.file_size,
+    p.creation_date,
+    p.quality_score,
+    dgp.is_recommended_keep
+FROM photos p
+JOIN duplicate_group_photos dgp ON p.id = dgp.photo_id
+WHERE dgp.group_id = ?
+ORDER BY dgp.is_recommended_keep DESC, p.quality_score DESC;
+----
+
+==== 類似写真の検索
+
+[source,sql]
+----
+-- 類似度が高いグループ順に取得
+SELECT 
+    sg.id,
+    sg.similarity_score,
+    sg.photo_count,
+    sg.total_size,
+    p.file_name as recommended_file_name
+FROM similar_groups sg
+LEFT JOIN photos p ON sg.recommended_keep_id = p.id
+WHERE sg.photo_count > 1
+ORDER BY sg.similarity_score DESC, sg.total_size DESC;
+
+-- 特定グループの類似写真取得（品質スコア順）
+SELECT 
+    p.id,
+    p.file_name,
+    p.quality_score,
+    sgp.similarity_to_center,
+    sgp.is_recommended_keep
+FROM photos p
+JOIN similar_group_photos sgp ON p.id = sgp.photo_id
+WHERE sgp.group_id = ?
+ORDER BY p.quality_score DESC;
+----
+
+==== 低品質写真の検索
+
+[source,sql]
+----
+-- 品質スコア順で低品質写真を取得
+SELECT 
+    id,
+    file_name,
+    file_size,
+    quality_score,
+    sharpness_score,
+    brightness_score
+FROM photos
+WHERE is_low_quality = TRUE 
+  AND is_deleted = FALSE
+ORDER BY quality_score ASC, file_size DESC;
+----
+
+=== 統計・レポート用クエリ
+
+==== 分析結果サマリー
+
+[source,sql]
+----
+-- 最新セッションの結果サマリー
+SELECT 
+    total_photos,
+    duplicates_found,
+    similar_groups_found,
+    low_quality_found,
+    potential_space_saved,
+    duration_seconds
+FROM analysis_sessions
+WHERE status = 'completed'
+ORDER BY created_at DESC
+LIMIT 1;
+
+-- 削除可能容量の計算
+SELECT 
+    'duplicates' as category,
+    COUNT(*) as photo_count,
+    SUM(p.file_size) as total_size
+FROM photos p
+JOIN duplicate_group_photos dgp ON p.id = dgp.photo_id
+WHERE dgp.is_recommended_keep = FALSE
+  AND p.is_deleted = FALSE
+
+UNION ALL
+
+SELECT 
+    'similar' as category,
+    COUNT(*) as photo_count,
+    SUM(p.file_size) as total_size
+FROM photos p
+JOIN similar_group_photos sgp ON p.id = sgp.photo_id
+WHERE sgp.is_recommended_keep = FALSE
+  AND p.is_deleted = FALSE
+
+UNION ALL
+
+SELECT 
+    'low_quality' as category,
+    COUNT(*) as photo_count,
+    SUM(p.file_size) as total_size
+FROM photos p
+WHERE p.is_low_quality = TRUE
+  AND p.is_deleted = FALSE;
+----
+
+=== パフォーマンス最適化クエリ
+
+==== バッチ処理用クエリ
+
+[source,sql]
+----
+-- 未分析写真の取得（バッチ処理用）
+SELECT id, local_identifier, file_path
+FROM photos
+WHERE analysis_date IS NULL
+  AND is_deleted = FALSE
+ORDER BY creation_date DESC
+LIMIT 50;
+
+-- ハッシュ値の一括更新
+UPDATE photos 
+SET hash_value = ?, 
+    analysis_date = CURRENT_TIMESTAMP,
+    analysis_version = ?
+WHERE id = ?;
+----
+
+== データ操作設計
+
+=== データ整合性保証
+
+==== トランザクション設計
+
+[source,sql]
+----
+-- 重複グループ作成のトランザクション例
+BEGIN TRANSACTION;
+
+-- 1. グループ作成
+INSERT INTO duplicate_groups (group_hash, photo_count, total_size)
+VALUES (?, ?, ?);
+
+-- 2. グループ写真関連付け
+INSERT INTO duplicate_group_photos (group_id, photo_id, is_recommended_keep)
+VALUES 
+  (last_insert_rowid(), ?, TRUE),
+  (last_insert_rowid(), ?, FALSE);
+
+-- 3. 写真テーブル更新
+UPDATE photos 
+SET is_duplicate = TRUE, updated_at = CURRENT_TIMESTAMP
+WHERE id IN (?, ?);
+
+COMMIT;
+----
+
+==== 外部キー制約
+
+[source,sql]
+----
+-- 外部キー制約の有効化
+PRAGMA foreign_keys = ON;
+
+-- カスケード削除の動作確認
+-- グループ削除時に関連レコードも自動削除される
+DELETE FROM duplicate_groups WHERE id = ?;
+-- → duplicate_group_photos の関連レコードも自動削除
+----
+
+=== データ移行・バックアップ
+
+==== バージョン管理
+
+[source,sql]
+----
+-- データベースバージョン管理テーブル
+CREATE TABLE schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    description TEXT
+);
+
+INSERT INTO schema_version (version, description) 
+VALUES (1, 'Initial schema');
+
+-- バージョン1→2への移行例
+ALTER TABLE photos ADD COLUMN composition_score REAL;
+UPDATE schema_version SET version = 2, applied_at = CURRENT_TIMESTAMP
+WHERE version = 1;
+----
+
+==== データエクスポート
+
+[source,sql]
+----
+-- 分析結果のエクスポート用ビュー
+CREATE VIEW analysis_export AS
+SELECT 
+    p.file_name,
+    p.file_size,
+    p.creation_date,
+    p.quality_score,
+    CASE 
+        WHEN p.is_duplicate THEN 'duplicate'
+        WHEN p.is_similar THEN 'similar' 
+        WHEN p.is_low_quality THEN 'low_quality'
+        ELSE 'normal'
+    END as classification,
+    p.analysis_date
+FROM photos p
+WHERE p.is_deleted = FALSE
+ORDER BY p.creation_date DESC;
+----
+
+== セキュリティ・プライバシー
+
+=== データ保護
+
+==== 機密データの暗号化
+```sql
+-- 将来的なSQLCipher対応
+-- PRAGMA key = 'user_specific_encryption_key';
+-- PRAGMA cipher_page_size = 4096;
+```
+
+==== データ削除
+
+[source,sql]
+----
+-- 完全データ削除（アンインストール時）
+DROP TABLE IF EXISTS photos;
+DROP TABLE IF EXISTS duplicate_groups;
+DROP TABLE IF EXISTS duplicate_group_photos;
+DROP TABLE IF EXISTS similar_groups;
+DROP TABLE IF EXISTS similar_group_photos;
+DROP TABLE IF EXISTS analysis_sessions;
+DROP TABLE IF EXISTS user_settings;
+DROP TABLE IF EXISTS deletion_history;
+DROP TABLE IF EXISTS schema_version;
+
+-- VACUUMで物理的削除を確実に実行
+VACUUM;
+----
+
+== 運用・メンテナンス
+
+=== 定期メンテナンス
+
+==== データベース最適化
+
+[source,sql]
+----
+-- 統計情報更新（パフォーマンス向上）
+ANALYZE;
+
+-- 断片化解消
+VACUUM;
+
+-- 古いセッションデータの削除（30日経過）
+DELETE FROM analysis_sessions 
+WHERE created_at < datetime('now', '-30 days');
+
+-- 削除履歴のクリーンアップ（90日経過）
+DELETE FROM deletion_history 
+WHERE deleted_at < datetime('now', '-90 days');
+----
+
+==== データ整合性チェック
+
+[source,sql]
+----
+-- 孤立レコードの確認
+SELECT COUNT(*) as orphaned_records
+FROM duplicate_group_photos dgp
+LEFT JOIN photos p ON dgp.photo_id = p.id
+WHERE p.id IS NULL;
+
+-- グループ内の写真数と実際の写真数の整合性確認
+SELECT 
+    dg.id,
+    dg.photo_count as recorded_count,
+    COUNT(dgp.photo_id) as actual_count
+FROM duplicate_groups dg
+LEFT JOIN duplicate_group_photos dgp ON dg.id = dgp.group_id
+GROUP BY dg.id
+HAVING recorded_count != actual_count;
+----
+
+== 次のステップ
+
+データベース実装時は以下も参照：
+
+* link:implementation_guide.adoc[実装ガイド] - SQLite接続・ORM実装
+* link:test_strategy.adoc[テスト戦略書] - データ整合性テスト
+* link:ui_design.adoc[UI/UX設計書] - データ表示要件
+
+TIP: データベース設計は後から変更が困難なため、実装前にこの設計書を十分にレビューしてください。

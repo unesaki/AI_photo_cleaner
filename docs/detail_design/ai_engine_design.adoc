@@ -1,0 +1,481 @@
+= AI エンジン設計書
+:toc: left
+:toclevels: 3
+:sectnums:
+:icons: font
+:source-highlighter: highlight.js
+
+== AI エンジン概要
+
+=== 処理対象と目標
+
+==== 検出対象
+[cols="1,2,1,2"]
+|===
+|カテゴリ |定義 |精度目標 |処理方式
+
+|重複写真
+|完全に同一の画像
+|99.5%
+|ペーパーハッシュ
+
+|類似写真
+|85%以上の類似度
+|95%
+|特徴量ベクトル比較
+
+|低品質写真
+|ブレ・暗さ・構図不良
+|90%
+|品質スコアリング
+|===
+
+==== パフォーマンス要件
+* **処理速度**: 1000枚/分以上
+* **メモリ使用量**: 512MB以下（通常）
+* **バッテリー消費**: 最小限（バックグラウンド処理対応）
+* **端末発熱**: 制御された範囲内
+
+=== AI アーキテクチャ
+
+[source]
+----
+┌─────────────────────────────────────────────────────┐
+│                 AI Photo Engine                     │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐    │
+│ │   重複検出    │ │   類似検出    │ │   品質評価    │    │
+│ │             │ │             │ │             │    │
+│ │ Perceptual  │ │ MobileNetV2 │ │ Multi-Model │    │
+│ │ Hash        │ │ Feature     │ │ Quality     │    │
+│ │             │ │ Extraction  │ │ Assessment  │    │
+│ └─────────────┘ └─────────────┘ └─────────────┘    │
+│                                                     │
+├─────────────────────────────────────────────────────┤
+│               Pre-processing Layer                   │
+├─────────────────────────────────────────────────────┤
+│ • 画像リサイズ（256x256）                              │
+│ • 正規化・前処理                                       │
+│ • バッチ処理最適化                                     │
+│ • メモリ管理                                          │
+└─────────────────────────────────────────────────────┘
+----
+
+== 重複検出エンジン
+
+=== Perceptual Hash アルゴリズム
+
+==== 処理フロー
+. **画像前処理**
+  - 8×8ピクセルにリサイズ
+  - グレースケール変換
+  - DCT（離散コサイン変換）適用
+
+. **ハッシュ生成**
+  - 低周波成分（左上8×8の半分）を抽出
+  - 平均値を計算
+  - 各値が平均以上なら1、未満なら0のビット列生成
+
+. **類似度判定**
+  - ハミング距離で比較
+  - 距離が2以下なら重複と判定
+
+==== 技術仕様
+
+[cols="1,3"]
+|===
+|項目 |仕様
+
+|ハッシュサイズ
+|64bit（8×8 DCT係数）
+
+|許容ハミング距離
+|0-2（調整可能）
+
+|処理時間
+|約10ms/枚（iPhone 12基準）
+
+|メモリ使用量
+|約1MB/1000枚分のハッシュ
+|===
+
+==== 実装アルゴリズム概要
+
+[source,javascript]
+----
+class DuplicateDetector {
+  async calculatePerceptualHash(image) {
+    // 1. 8x8にリサイズ & グレースケール変換
+    const resized = tf.image.resizeBilinear(image, [8, 8]);
+    const grayscale = tf.image.rgbToGrayscale(resized);
+    
+    // 2. DCT変換（TensorFlow.js実装）
+    const dct = this.applyDCT(grayscale);
+    
+    // 3. 低周波成分抽出
+    const lowFreq = dct.slice([0, 0], [8, 8]);
+    
+    // 4. 平均値計算 & バイナリ化
+    const mean = tf.mean(lowFreq);
+    const binary = tf.greater(lowFreq, mean);
+    
+    return this.convertToBitString(binary);
+  }
+  
+  findDuplicateGroups(photos) {
+    const groups = [];
+    const processed = new Set();
+    
+    for (let i = 0; i < photos.length; i++) {
+      if (processed.has(i)) continue;
+      
+      const group = [photos[i]];
+      processed.add(i);
+      
+      for (let j = i + 1; j < photos.length; j++) {
+        if (processed.has(j)) continue;
+        
+        const distance = this.hammingDistance(
+          photos[i].hash, 
+          photos[j].hash
+        );
+        
+        if (distance <= 2) {
+          group.push(photos[j]);
+          processed.add(j);
+        }
+      }
+      
+      if (group.length > 1) {
+        groups.push(group);
+      }
+    }
+    
+    return groups;
+  }
+}
+----
+
+=== 最適化戦略
+
+==== バッチ処理
+* **バッチサイズ**: 50枚/バッチ
+* **並列処理**: CPU コア数に応じて調整
+* **メモリ効率**: 処理後即座にTensor解放
+
+==== 早期終了最適化
+* **ファイルサイズフィルタ**: 同サイズ写真を優先処理
+* **メタデータ比較**: 撮影日時が同一のものを優先
+* **段階的処理**: 完全一致→近似一致の順序
+
+== 類似写真検出エンジン
+
+=== 特徴量抽出
+
+==== MobileNetV2 ベース
+* **入力サイズ**: 224×224×3
+* **出力**: 1280次元特徴ベクトル
+* **モデルサイズ**: 約14MB（量子化後）
+* **推論時間**: 約50ms/枚
+
+==== 類似度計算
+
+[cols="1,2,2"]
+|===
+|手法 |特徴 |用途
+
+|コサイン類似度
+|角度ベースの類似性
+|全体的な構図比較
+
+|L2距離
+|ユークリッド距離
+|詳細な特徴比較
+
+|ピアソン相関
+|相関係数
+|色調・明度パターン
+|===
+
+=== クラスタリング戦略
+
+==== DBSCAN アルゴリズム
+* **epsilon**: 0.15（類似度閾値）
+* **min_samples**: 2（最小グループサイズ）
+* **距離関数**: 1 - コサイン類似度
+
+==== 実装概要
+
+[source,javascript]
+----
+class SimilarityDetector {
+  async extractFeatures(photos) {
+    const model = await tf.loadLayersModel('mobilenet_v2_model');
+    const features = [];
+    
+    for (const batch of this.createBatches(photos, 10)) {
+      // バッチ処理で効率化
+      const tensors = batch.map(photo => 
+        this.preprocessImage(photo.image)
+      );
+      
+      const batchTensor = tf.stack(tensors);
+      const batchFeatures = model.predict(batchTensor);
+      
+      // 正規化
+      const normalized = tf.l2Normalize(batchFeatures, -1);
+      
+      features.push(...await normalized.arraySync());
+      
+      // メモリクリーンアップ
+      tensors.forEach(t => t.dispose());
+      batchTensor.dispose();
+      batchFeatures.dispose();
+      normalized.dispose();
+    }
+    
+    return features;
+  }
+  
+  clusterSimilarPhotos(features, threshold = 0.85) {
+    // コサイン類似度行列計算
+    const similarities = this.calculateSimilarityMatrix(features);
+    
+    // DBSCAN クラスタリング
+    return this.dbscan(similarities, threshold, 2);
+  }
+}
+----
+
+=== 写真品質ランキング
+
+==== グループ内最適写真選択
+各類似グループ内で最も品質の高い写真を自動選択
+
+[cols="1,1,3"]
+|===
+|評価項目 |重み |計算方法
+
+|鮮明度
+|30%
+|Sobelフィルタによるエッジ強度
+
+|明度適正
+|20%
+|RGB平均値の最適範囲判定
+
+|構図バランス
+|25%
+|三分割法・中央配置分析
+
+|顔検出
+|15%
+|顔の数・大きさ・鮮明さ
+
+|撮影時期
+|10%
+|より新しい写真を優遇
+|===
+
+== 品質評価エンジン
+
+=== マルチモーダル品質評価
+
+==== 鮮明度評価
+* **手法**: Sobelエッジ検出 + 分散計算
+* **閾値**: 分散値 < 100で低品質判定
+* **補正**: 画像サイズによる正規化
+
+==== 明度・コントラスト評価
+* **明度評価**: グレースケール平均値
+* **最適範囲**: 0.2 〜 0.8（正規化後）
+* **コントラスト**: ヒストグラム分散値
+
+==== ノイズ検出
+* **手法**: ガウシアンフィルタとの差分
+* **評価**: 高周波成分の比率
+* **閾値**: ノイズ比率 > 15%で低品質
+
+=== 品質スコア統合
+
+==== 総合スコア計算
+
+[source,javascript]
+----
+class QualityEvaluator {
+  async evaluatePhoto(photo) {
+    const scores = {
+      sharpness: await this.analyzeSharpness(photo),
+      brightness: this.analyzeBrightness(photo),
+      contrast: this.analyzeContrast(photo),
+      noise: await this.analyzeNoise(photo),
+      composition: await this.analyzeComposition(photo)
+    };
+    
+    // 重み付き総合スコア
+    const totalScore = (
+      scores.sharpness * 0.3 +
+      scores.brightness * 0.2 +
+      scores.contrast * 0.2 +
+      scores.noise * 0.15 +
+      scores.composition * 0.15
+    );
+    
+    return {
+      score: totalScore,
+      details: scores,
+      recommendation: this.getRecommendation(totalScore),
+      confidence: this.calculateConfidence(scores)
+    };
+  }
+  
+  getRecommendation(score) {
+    if (score < 0.3) return 'delete';
+    if (score < 0.5) return 'review';
+    return 'keep';
+  }
+}
+----
+
+==== 品質閾値設定
+
+[cols="1,1,2"]
+|===
+|スコア範囲 |判定 |推奨アクション
+
+|0.0 - 0.3
+|低品質
+|削除推奨
+
+|0.3 - 0.5
+|要確認
+|ユーザー判断
+
+|0.5 - 1.0
+|良品質
+|保持推奨
+|===
+
+== パフォーマンス最適化
+
+=== メモリ管理戦略
+
+==== Tensor ライフサイクル管理
+* **即座解放**: 使用後のTensorを即座にdispose()
+* **バッチ制御**: 一度に処理するTensor数を制限
+* **メモリ監視**: tf.memory()で使用量を監視
+
+==== 画像データ最適化
+* **解像度制限**: 分析用は最大512×512
+* **フォーマット統一**: JPEG 品質80%で統一
+* **遅延読み込み**: 必要時のみ高解像度読み込み
+
+=== 並列処理設計
+
+==== Web Workers 活用
+```javascript
+// 重い処理をWorkerに分離
+class AIWorkerManager {
+  constructor() {
+    this.workers = [];
+    this.maxWorkers = navigator.hardwareConcurrency || 4;
+  }
+  
+  async processInParallel(photos, batchSize = 50) {
+    const batches = this.createBatches(photos, batchSize);
+    
+    const promises = batches.map((batch, index) => 
+      this.processWithWorker(batch, index % this.maxWorkers)
+    );
+    
+    return Promise.all(promises);
+  }
+}
+```
+
+==== バックグラウンド処理
+* **優先度制御**: UI応答性を最優先
+* **中断可能**: ユーザー操作による中断対応
+* **進捗通知**: リアルタイム進捗更新
+
+== エラーハンドリング・フォールバック
+
+=== AI処理エラー対応
+
+==== 段階的フォールバック
+. **完全AI処理** →
+. **軽量アルゴリズム** →
+. **メタデータベース処理** →
+. **手動確認モード**
+
+==== エラーパターン別対応
+
+[cols="1,2,2"]
+|===
+|エラー種類 |原因 |対応策
+
+|メモリ不足
+|大量画像・大解像度
+|バッチサイズ削減・解像度制限
+
+|モデル読み込み失敗
+|ネットワーク・ストレージ
+|キャッシュ利用・軽量版フォールバック
+
+|処理タイムアウト
+|端末性能・大量データ
+|部分処理・段階的実行
+
+|権限エラー
+|写真アクセス拒否
+|権限再要求・ガイダンス表示
+|===
+
+=== 品質保証
+
+==== 精度検証
+* **テストデータセット**: 1000枚の正解ラベル付きデータ
+* **継続監視**: 実際の使用データでの精度測定
+* **ユーザーフィードバック**: 誤判定の報告・学習システム
+
+==== A/Bテスト対応
+* **閾値調整**: 類似度・品質閾値の動的調整
+* **アルゴリズム比較**: 複数手法の効果比較
+* **ユーザビリティ**: AI推奨の採用率測定
+
+== 将来拡張計画
+
+=== 機能拡張ロードマップ
+
+==== Phase 2: 高度AI機能
+* **シーン分類**: 風景・人物・食べ物等の自動分類
+* **顔認識**: 人物別の写真整理
+* **テキスト検出**: 写真内文字の読み取り・検索
+
+==== Phase 3: クラウドAI連携
+* **サーバーサイド処理**: より高精度なモデル利用
+* **学習機能**: ユーザー行動学習による精度向上
+* **共同学習**: 匿名化データでの集合知活用
+
+=== 技術的考慮事項
+
+==== モデル更新戦略
+* **OTA更新**: アプリ更新なしでのモデル更新
+* **A/Bテスト**: 新旧モデルの性能比較
+* **段階的展開**: 一部ユーザーでの先行テスト
+
+==== プライバシー保護
+* **端末内処理**: 画像データは端末外に送信しない
+* **匿名化**: 使用統計は完全匿名化
+* **透明性**: AI判断理由の可視化
+
+== 次のステップ
+
+AI エンジンの実装には以下も参照：
+
+* link:database_design.adoc[データベース設計書] - 分析結果の保存構造
+* link:implementation_guide.adoc[実装ガイド] - TensorFlow Lite 具体的実装
+* link:test_strategy.adoc[テスト戦略書] - AI精度の検証手法
+
+IMPORTANT: AI処理は端末性能に大きく依存するため、最適化とフォールバック戦略の実装が成功の鍵となります。
