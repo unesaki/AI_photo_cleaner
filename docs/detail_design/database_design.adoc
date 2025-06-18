@@ -694,8 +694,8 @@ HAVING recorded_count != actual_count;
 
 データベース実装時は以下も参照：
 
-* link:implementation_guide.adoc[実装ガイド] - SQLite接続・ORM実装
-* link:test_strategy.adoc[テスト戦略書] - データ整合性テスト
-* link:ui_design.adoc[UI/UX設計書] - データ表示要件
+* link:code_guide_design.adoc[実装ガイド] - SQLite接続・ORM実装
+* link:test_design.adoc[テスト戦略書] - データ整合性テスト
+* link:uiux_design.adoc[UI/UX設計書] - データ表示要件
 
 TIP: データベース設計は後から変更が困難なため、実装前にこの設計書を十分にレビューしてください。

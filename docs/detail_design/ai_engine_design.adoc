@@ -475,7 +475,7 @@ class AIWorkerManager {
 AI エンジンの実装には以下も参照：
 
 * link:database_design.adoc[データベース設計書] - 分析結果の保存構造
-* link:implementation_guide.adoc[実装ガイド] - TensorFlow Lite 具体的実装
-* link:test_strategy.adoc[テスト戦略書] - AI精度の検証手法
+* link:code_guide_design.adoc[実装ガイド] - TensorFlow Lite 具体的実装
+* link:test_design.adoc[テスト戦略書] - AI精度の検証手法
 
 IMPORTANT: AI処理は端末性能に大きく依存するため、最適化とフォールバック戦略の実装が成功の鍵となります。
