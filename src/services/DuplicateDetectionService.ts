@@ -183,7 +183,7 @@ export class DuplicateDetectionService {
       for (const photoId of photoIdsToDelete) {
         try {
           await databaseService.updatePhoto(parseInt(photoId), { isDeleted: true });
-        } catch (error) {
+        } catch {
           errors.push(`Failed to update database for photo ${photoId}`);
         }
       }

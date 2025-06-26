@@ -2,7 +2,6 @@ import React from 'react';
 import {
   TouchableOpacity,
   Text,
-  StyleSheet,
   ActivityIndicator,
   ViewStyle,
   TextStyle
@@ -112,6 +111,3 @@ export function ActionButton({
   );
 }
 
-const styles = StyleSheet.create({
-  // Additional styles if needed
-});
