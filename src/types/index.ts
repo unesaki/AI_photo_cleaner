@@ -67,3 +67,18 @@ export interface UserSettings {
   animateTransitions: boolean;
   firstLaunchCompleted: boolean;
 }
+
+export interface Migration {
+  version: number;
+  name: string;
+  description: string;
+  up: (db: any) => Promise<void>;
+  down?: (db: any) => Promise<void>;
+}
+
+export interface MigrationRecord {
+  id: number;
+  version: number;
+  name: string;
+  applied_at: string;
+}

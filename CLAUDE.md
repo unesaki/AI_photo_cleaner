@@ -63,6 +63,23 @@ npm run ios          # Run on iOS
 - `duplicate_group_photos`: Junction table for group membership
 - `analysis_sessions`: Analysis run history
 - `user_settings`: App configuration
+- `migrations`: Database migration tracking
+
+## Migration System
+
+The app uses a custom migration system for safe database schema updates:
+
+- **MigrationService**: Handles database schema versioning and migrations
+- **Migration tracking**: Records applied migrations in the migrations table
+- **Rollback support**: Some migrations support rollback functionality
+- **Version management**: Automatic detection of pending migrations
+
+### Key Migration Features:
+- Transactional migrations (rollback on failure)
+- Sequential migration execution
+- Migration status reporting
+- Database reset functionality
+- Comprehensive error handling
 
 ## Testing Strategy
 
