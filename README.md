@@ -1,81 +1,182 @@
-# Welcome to your Expo app 👋
+# 📸 AI Photo Cleaner
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+> スマートフォンの写真整理を自動化するAI搭載アプリケーション
 
-## Get started
+[![CI](https://github.com/unesaki/AI_photo_cleaner/workflows/CI/badge.svg)](https://github.com/unesaki/AI_photo_cleaner/actions)
+[![TypeScript](https://img.shields.io/badge/TypeScript-4.9+-blue)](https://www.typescriptlang.org/)
+[![React Native](https://img.shields.io/badge/React%20Native-0.79-61DAFB)](https://reactnative.dev/)
+[![Expo](https://img.shields.io/badge/Expo-53.0-000020)](https://expo.dev/)
 
-1. Install dependencies
+## 🌟 概要
 
+**AI Photo Cleaner**は、「写真整理の悩みを5分で解決する、AI搭載スマートクリーナー」をコンセプトとした、写真ライブラリの自動整理アプリです。
+
+### 🎯 主要な価値提案
+- 🔍 **重複・類似・低品質写真をAIが自動検出**
+- ⚡ **平均2GBの容量を5分で節約**
+- 🛡️ **安全な削除確認システム**
+
+## ✨ 主要機能
+
+### 📱 MVP機能（実装済み）
+- [x] 📂 写真ライブラリアクセス（権限管理）
+- [x] 🔄 重複写真検出（完全一致）
+- [x] 🎨 直感的なユーザーインターフェース
+- [x] ✅ 安全な削除確認システム
+- [x] 📊 効果レポート表示
+
+### 🚀 プレミアム機能（開発予定）
+- [ ] 🤖 AI類似写真検出
+- [ ] 📈 写真品質評価
+- [ ] 🔄 無制限処理
+- [ ] 📵 広告非表示
+
+## 🏗️ 技術スタック
+
+| レイヤー | 技術 | 理由 |
+|---------|------|------|
+| **フロントエンド** | React Native + Expo | iOS/Android同時開発、開発効率 |
+| **AI処理** | TensorFlow Lite | 端末内処理、高速化、プライバシー保護 |
+| **ローカルDB** | SQLite | 軽量、高速、オフライン対応 |
+| **認証・分析** | Firebase | 迅速な導入、スケーラビリティ |
+| **言語** | TypeScript | 型安全性、開発効率 |
+
+## 🚀 クイックスタート
+
+### 📋 前提条件
+- Node.js 18以上
+- npm または yarn
+- Expo CLI
+- iOS Simulator（iOS開発）
+- Android Studio（Android開発）
+
+### 🔧 セットアップ
+
+1. **リポジトリをクローン**
+   ```bash
+   git clone https://github.com/unesaki/AI_photo_cleaner.git
+   cd AI_photo_cleaner
+   ```
+
+2. **依存関係をインストール**
    ```bash
    npm install
    ```
 
-2. Start the app
-
+3. **開発サーバーを起動**
    ```bash
-   npx expo start
+   npm start
    ```
 
-In the output, you'll find options to open the app in a
+4. **アプリを実行**
+   - iOS: `i` キーまたは iOS Simulator
+   - Android: `a` キーまたは Android Emulator
+   - Web: `w` キー
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+### 📱 利用可能なコマンド
 
 ```bash
-npm run reset-project
+npm start          # Expo開発サーバー起動
+npm run android    # Android向けビルド
+npm run ios        # iOS向けビルド  
+npm run web        # Web向けビルド
+npm run lint       # ESLintチェック
+npx tsc --noEmit   # TypeScriptチェック
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## 🏗️ プロジェクト構造
 
-## Learn more
+```
+AI_photo_cleaner/
+├── app/                    # Expo Router screens
+│   ├── (tabs)/            # Tab navigation screens
+│   │   ├── index.tsx      # Dashboard screen
+│   │   └── explore.tsx    # Results screen
+│   └── _layout.tsx        # Root layout
+├── components/            # Reusable UI components
+│   └── ui/               # Design system components
+├── src/
+│   ├── services/         # Business logic
+│   │   ├── DatabaseService.ts
+│   │   ├── PhotoService.ts
+│   │   └── DuplicateDetectionService.ts
+│   ├── types/           # TypeScript definitions
+│   └── utils/           # Utilities and constants
+├── docs/                # Design documents
+│   ├── detail_design/   # Technical specifications
+│   └── TODO.adoc        # Development roadmap
+└── .github/             # CI/CD and templates
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+## 🧪 開発・テスト
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+### コード品質
+```bash
+npm run lint              # ESLint実行
+npx tsc --noEmit         # TypeScript型チェック
+```
 
-## Join the community
+### CI/CD
+GitHub Actionsを使用して以下を自動化：
+- ✅ ESLintチェック  
+- ✅ TypeScript型チェック
+- ✅ セキュリティ監査
+- ✅ ビルドチェック
 
-Join our community of developers creating universal apps.
+## 🐳 Docker環境
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
-# AI_photo_cleaner
-
-## Docker環境での開発
-
-このプロジェクトはDockerを使用してReact Native Expo開発環境をコンテナ化できます。
-
-### 作成されたDockerファイル
-
-- **Dockerfile**: Node.js 18、Android開発ツール、Expo CLIを含む開発環境
-- **.dockerignore**: ビルド時に除外するファイル・ディレクトリの設定
-- **docker-compose.yml**: Expo開発サーバーとポート設定を含むコンテナ設定
-
-### Docker環境の使用方法
+開発環境のコンテナ化が可能です：
 
 ```bash
-# コンテナをビルド
-docker-compose build
-
-# コンテナを起動
-docker-compose up
-
-# バックグラウンドで起動
-docker-compose up -d
+docker-compose build     # 環境構築
+docker-compose up       # 開発サーバー起動
 ```
 
-### 利用可能なポート
-
+**利用可能なポート:**
 - 8081: Metro bundler
-- 19000: Expo Dev Tools
-- 19001: Expo Dev Server (LAN)
-- 19002: Expo Dev Server (localhost)
+- 19000: Expo Dev Tools  
+- 19001-19002: Expo Dev Server
+
+## 📋 開発ロードマップ
+
+### ✅ Phase 1: MVP実装（完了）
+- [x] 基本UI実装
+- [x] 重複検出エンジン
+- [x] 写真ライブラリアクセス
+- [x] 削除確認システム
+
+### 🚧 Phase 2: AI機能追加（開発中）
+- [ ] TensorFlow.js統合
+- [ ] AI類似写真検出
+- [ ] 写真品質評価エンジン
+- [ ] パフォーマンス最適化
+
+### 📅 Phase 3: リリース準備（予定）
+- [ ] ユニットテスト実装
+- [ ] UI/UXアニメーション
+- [ ] アクセシビリティ対応
+- [ ] ストア申請準備
+
+## 🤝 貢献
+
+プロジェクトへの貢献を歓迎します！詳細は [CONTRIBUTING.md](CONTRIBUTING.md) をご覧ください。
+
+### 🐛 バグ報告・機能要望
+- [Issues](https://github.com/unesaki/AI_photo_cleaner/issues) でバグ報告
+- [Feature Request](https://github.com/unesaki/AI_photo_cleaner/issues/new?template=feature_request.md) で機能要望
+
+## 📄 ライセンス
+
+このプロジェクトは [MIT License](LICENSE) の下で公開されています。
+
+## 📞 サポート
+
+- 📖 [詳細設計書](docs/detail_design/project_design.adoc)
+- 📋 [開発TODO](docs/TODO.adoc)
+- 🐛 [Issue報告](https://github.com/unesaki/AI_photo_cleaner/issues)
+
+---
+
+<p align="center">
+  <strong>📸 AI Photo Cleaner - スマートな写真整理をあなたの手に</strong>
+</p>
