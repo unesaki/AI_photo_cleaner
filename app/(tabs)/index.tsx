@@ -119,14 +119,37 @@ export default function DashboardScreen() {
         setAnalysisMessage(`重複を分析中... ${current}/${total}`);
       });
 
-      // Show results
-      Alert.alert(
-        '分析完了',
-        `分析が完了しました。\n重複写真: ${result.totalDuplicates}枚\n節約可能容量: ${(result.spaceSaved / 1024 / 1024).toFixed(1)}MB`
-      );
-
       // Update photo count
       setPhotoCount(photos.length);
+
+      // Create and save analysis session
+      const newSession: AnalysisSession = {
+        id: `session_${Date.now()}`,
+        startedAt: Date.now() - (analysisProgress * 60000), // Approximate start time
+        completedAt: Date.now(),
+        photosAnalyzed: photos.length,
+        duplicatesFound: result.totalDuplicates,
+        spaceSaved: result.spaceSaved,
+        status: 'completed'
+      };
+      setLastSession(newSession);
+
+      // Show results with action options
+      Alert.alert(
+        '分析完了',
+        `分析が完了しました。\n\n📊 結果:\n• 分析した写真: ${photos.length}枚\n• 重複写真: ${result.totalDuplicates}枚\n• 節約可能容量: ${(result.spaceSaved / 1024 / 1024).toFixed(1)}MB`,
+        [
+          { text: 'OK', style: 'default' },
+          { 
+            text: '結果を見る', 
+            style: 'default',
+            onPress: () => {
+              // Navigate to results tab - in a real app you'd use router
+              console.log('Navigate to results tab');
+            }
+          }
+        ]
+      );
 
     } catch (error) {
       console.error('Analysis failed:', error);
@@ -146,12 +169,15 @@ export default function DashboardScreen() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
-  const formatDate = (dateString: string): string => {
-    const date = new Date(dateString);
+  const formatDate = (timestamp: number): string => {
+    if (!timestamp || isNaN(timestamp)) return '未実行';
+    
+    const date = new Date(timestamp);
     const now = new Date();
     const diffTime = Math.abs(now.getTime() - date.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     
+    if (diffDays === 0) return '今日';
     if (diffDays === 1) return '1日前';
     if (diffDays < 7) return `${diffDays}日前`;
     if (diffDays < 30) return `${Math.ceil(diffDays / 7)}週間前`;
@@ -220,13 +246,35 @@ export default function DashboardScreen() {
               <StatCard
                 icon="💾"
                 title="容量削減"
-                value={formatFileSize(lastSession.potentialSpaceSaved)}
+                value={formatFileSize(lastSession.spaceSaved)}
                 color={Colors.info}
               />
             </View>
             <ThemedText style={styles.lastAnalysisDate}>
-              最終分析: {formatDate(lastSession.startTime)}
+              最終分析: {formatDate(lastSession.completedAt)}
             </ThemedText>
+            
+            <View style={styles.actionRow}>
+              <ActionButton
+                title="詳細を見る"
+                onPress={() => {
+                  // In a real app, you'd navigate to results tab
+                  Alert.alert(
+                    '分析結果詳細',
+                    `📊 前回分析の詳細:\n\n• 分析日時: ${new Date(lastSession.completedAt).toLocaleString('ja-JP')}\n• 分析した写真: ${lastSession.photosAnalyzed}枚\n• 検出した重複: ${lastSession.duplicatesFound}枚\n• 節約可能容量: ${formatFileSize(lastSession.spaceSaved)}\n\n「結果」タブで削除や管理ができます。`
+                  );
+                }}
+                variant="secondary"
+                style={styles.detailButton}
+              />
+              <ActionButton
+                title="再分析"
+                onPress={startAnalysis}
+                variant="primary"
+                style={styles.reAnalyzeButton}
+                loading={isAnalyzing}
+              />
+            </View>
           </View>
         )}
 
@@ -291,6 +339,17 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
     marginTop: Spacing.sm,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    marginTop: Spacing.lg,
+    gap: Spacing.md,
+  },
+  detailButton: {
+    flex: 1,
+  },
+  reAnalyzeButton: {
+    flex: 1,
   },
   bottomSpacer: {
     height: Spacing.xl,
