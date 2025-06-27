@@ -1,13 +1,18 @@
 import * as SQLite from 'expo-sqlite';
 import { PhotoMetadata, DuplicateGroup, AnalysisSession, UserSettings } from '../types';
+import { createMigrationService, MigrationService } from './MigrationService';
 
 export class DatabaseService {
   private db: SQLite.SQLiteDatabase | null = null;
+  private migrationService: MigrationService | null = null;
 
   async initialize(): Promise<void> {
     try {
       this.db = await SQLite.openDatabaseAsync('photo_cleaner.db');
-      await this.createTables();
+      this.migrationService = createMigrationService(this.db);
+      
+      // Run migrations instead of creating tables directly
+      await this.migrationService.runMigrations();
       await this.initializeSettings();
     } catch (error) {
       console.error('Database initialization failed:', error);
@@ -15,91 +20,28 @@ export class DatabaseService {
     }
   }
 
-  private async createTables(): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+  // Migration related methods
+  async getMigrationStatus() {
+    if (!this.migrationService) throw new Error('Migration service not initialized');
+    return await this.migrationService.getMigrationStatus();
+  }
 
-    // Photos table
-    await this.db.execAsync(`
-      CREATE TABLE IF NOT EXISTS photos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        local_identifier TEXT UNIQUE NOT NULL,
-        file_path TEXT,
-        file_name TEXT,
-        file_size INTEGER,
-        width INTEGER,
-        height INTEGER,
-        creation_date DATETIME,
-        modification_date DATETIME,
-        hash_value TEXT,
-        quality_score REAL DEFAULT 0.0,
-        is_duplicate BOOLEAN DEFAULT FALSE,
-        is_deleted BOOLEAN DEFAULT FALSE,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
+  async runMigrations(): Promise<void> {
+    if (!this.migrationService) throw new Error('Migration service not initialized');
+    await this.migrationService.runMigrations();
+  }
 
-    // Duplicate groups table
-    await this.db.execAsync(`
-      CREATE TABLE IF NOT EXISTS duplicate_groups (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        group_hash TEXT UNIQUE NOT NULL,
-        photo_count INTEGER DEFAULT 0,
-        total_size INTEGER DEFAULT 0,
-        recommended_keep_id INTEGER,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (recommended_keep_id) REFERENCES photos(id)
-      );
-    `);
+  async rollbackToVersion(version: number): Promise<void> {
+    if (!this.migrationService) throw new Error('Migration service not initialized');
+    await this.migrationService.rollbackMigration(version);
+  }
 
-    // Duplicate group photos junction table
-    await this.db.execAsync(`
-      CREATE TABLE IF NOT EXISTS duplicate_group_photos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        group_id INTEGER NOT NULL,
-        photo_id INTEGER NOT NULL,
-        is_recommended_keep BOOLEAN DEFAULT FALSE,
-        FOREIGN KEY (group_id) REFERENCES duplicate_groups(id) ON DELETE CASCADE,
-        FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
-        UNIQUE(group_id, photo_id)
-      );
-    `);
-
-    // Analysis sessions table
-    await this.db.execAsync(`
-      CREATE TABLE IF NOT EXISTS analysis_sessions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_uuid TEXT UNIQUE NOT NULL,
-        total_photos INTEGER NOT NULL,
-        analyzed_photos INTEGER DEFAULT 0,
-        duplicates_found INTEGER DEFAULT 0,
-        total_size_analyzed INTEGER DEFAULT 0,
-        potential_space_saved INTEGER DEFAULT 0,
-        start_time DATETIME NOT NULL,
-        end_time DATETIME,
-        status TEXT DEFAULT 'running',
-        error_message TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-    // User settings table
-    await this.db.execAsync(`
-      CREATE TABLE IF NOT EXISTS user_settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-    // Create indexes for better performance
-    await this.db.execAsync(`
-      CREATE INDEX IF NOT EXISTS idx_photos_hash ON photos(hash_value);
-      CREATE INDEX IF NOT EXISTS idx_photos_duplicate ON photos(is_duplicate, is_deleted);
-      CREATE INDEX IF NOT EXISTS idx_dgp_group ON duplicate_group_photos(group_id);
-      CREATE INDEX IF NOT EXISTS idx_dgp_photo ON duplicate_group_photos(photo_id);
-    `);
+  async resetDatabase(): Promise<void> {
+    if (!this.migrationService) throw new Error('Migration service not initialized');
+    await this.migrationService.resetDatabase();
+    
+    // Reinitialize after reset
+    await this.initialize();
   }
 
   private async initializeSettings(): Promise<void> {
@@ -271,7 +213,7 @@ export class DatabaseService {
   async createAnalysisSession(totalPhotos: number): Promise<string> {
     if (!this.db) throw new Error('Database not initialized');
 
-    const sessionUuid = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+    const sessionUuid = Date.now().toString() + Math.random().toString(36).substring(2, 11);
 
     await this.db.runAsync(`
       INSERT INTO analysis_sessions (
