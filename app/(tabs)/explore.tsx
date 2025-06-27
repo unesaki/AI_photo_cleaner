@@ -3,29 +3,27 @@ import {
   StyleSheet, 
   View, 
   Alert, 
-  TouchableOpacity, 
-  FlatList,
-  Dimensions
+  FlatList
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Image } from 'expo-image';
 import { useFocusEffect } from '@react-navigation/native';
 import { ActionButton } from '@/components/ui/ActionButton';
 import { StatCard } from '@/components/ui/StatCard';
+import { DuplicateGroupCard } from '@/components/ui/DuplicateGroupCard';
+import { DeletionConfirmDialog } from '@/components/ui/DeletionConfirmDialog';
 import { ThemedText } from '@/components/ThemedText';
 import { Colors, Spacing, Typography } from '@/src/utils/constants';
 import { databaseService } from '@/src/services/DatabaseService';
 import { duplicateDetectionService } from '@/src/services/DuplicateDetectionService';
 import type { DuplicateGroup, PhotoMetadata } from '@/src/types';
 
-const screenWidth = Dimensions.get('window').width;
-const cardWidth = (screenWidth - Spacing.lg * 3) / 2;
 
 export default function DuplicateResultsScreen() {
   const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -72,23 +70,13 @@ export default function DuplicateResultsScreen() {
       return;
     }
 
-    Alert.alert(
-      '削除確認',
-      `選択した${selectedPhotos.size}枚の写真を削除しますか？この操作は取り消せません。`,
-      [
-        { text: 'キャンセル', style: 'cancel' },
-        { 
-          text: '削除する', 
-          style: 'destructive',
-          onPress: performDeletion
-        }
-      ]
-    );
+    setShowDeleteConfirm(true);
   };
 
   const performDeletion = async () => {
     try {
       setIsDeleting(true);
+      setShowDeleteConfirm(false);
       
       // Group photos by their duplicate group for batch deletion
       const groupedDeletions = new Map<string, string[]>();
@@ -136,6 +124,10 @@ export default function DuplicateResultsScreen() {
     }
   };
 
+  const handleCancelDeletion = () => {
+    setShowDeleteConfirm(false);
+  };
+
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 B';
     const k = 1024;
@@ -156,71 +148,16 @@ export default function DuplicateResultsScreen() {
     }, 0);
   };
 
-  const renderPhotoItem = (photo: PhotoMetadata, group: DuplicateGroup) => {
-    const isSelected = selectedPhotos.has(photo.id);
-    const isRecommendedKeep = photo.id === group.recommendedKeepId;
-
-    return (
-      <TouchableOpacity
-        key={photo.id}
-        style={[
-          styles.photoItem,
-          isSelected && styles.selectedPhoto,
-          isRecommendedKeep && styles.recommendedPhoto
-        ]}
-        onPress={() => togglePhotoSelection(photo.id)}
-        disabled={isRecommendedKeep}
-      >
-        <Image
-          source={{ uri: photo.filePath }}
-          style={styles.photoImage}
-          contentFit="cover"
-        />
-        <View style={styles.photoOverlay}>
-          {isRecommendedKeep && (
-            <View style={styles.recommendedBadge}>
-              <ThemedText style={styles.recommendedText}>推奨保持</ThemedText>
-            </View>
-          )}
-          {isSelected && !isRecommendedKeep && (
-            <View style={styles.selectedBadge}>
-              <ThemedText style={styles.selectedText}>✓</ThemedText>
-            </View>
-          )}
-          <View style={styles.photoInfo}>
-            <ThemedText style={styles.photoSize}>
-              {formatFileSize(photo.fileSize)}
-            </ThemedText>
-          </View>
-        </View>
-      </TouchableOpacity>
-    );
-  };
 
   const renderDuplicateGroup = ({ item: group }: { item: DuplicateGroup }) => (
-    <View style={styles.groupCard}>
-      <View style={styles.groupHeader}>
-        <ThemedText style={styles.groupTitle}>
-          重複グループ ({group.photoCount}枚)
-        </ThemedText>
-        <TouchableOpacity
-          style={styles.selectAllButton}
-          onPress={() => selectAllDuplicatesInGroup(group)}
-        >
-          <ThemedText style={styles.selectAllText}>重複を選択</ThemedText>
-        </TouchableOpacity>
-      </View>
-      
-      <View style={styles.groupStats}>
-        <ThemedText style={styles.groupStatsText}>
-          合計サイズ: {formatFileSize(group.totalSize)}
-        </ThemedText>
-      </View>
-
-      <View style={styles.photosGrid}>
-        {group.photos.map(photo => renderPhotoItem(photo, group))}
-      </View>
-    </View>
+    <DuplicateGroupCard
+      group={group}
+      selectedPhotos={selectedPhotos}
+      onPhotoSelect={togglePhotoSelection}
+      onSelectAllDuplicates={selectAllDuplicatesInGroup}
+      showPhotoDetails={true}
+      compactMode={false}
+    />
   );
 
   if (isLoading) {
@@ -296,6 +233,15 @@ export default function DuplicateResultsScreen() {
           />
         </View>
       )}
+
+      <DeletionConfirmDialog
+        visible={showDeleteConfirm}
+        selectedPhotos={selectedPhotos}
+        duplicateGroups={duplicateGroups}
+        onCancel={handleCancelDeletion}
+        onConfirm={performDeletion}
+        isDeleting={isDeleting}
+      />
     </SafeAreaView>
   );
 }
@@ -348,115 +294,6 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: Spacing.lg,
-  },
-  groupCard: {
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: Spacing.lg,
-    marginBottom: Spacing.lg,
-  },
-  groupHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.sm,
-  },
-  groupTitle: {
-    ...Typography.h2,
-    color: Colors.textPrimary,
-  },
-  selectAllButton: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    backgroundColor: Colors.primary,
-    borderRadius: 6,
-  },
-  selectAllText: {
-    ...Typography.caption,
-    color: '#ffffff',
-    fontWeight: '600',
-  },
-  groupStats: {
-    marginBottom: Spacing.md,
-  },
-  groupStatsText: {
-    ...Typography.caption,
-    color: Colors.textSecondary,
-  },
-  photosGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-  },
-  photoItem: {
-    width: cardWidth,
-    height: cardWidth,
-    borderRadius: 8,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  selectedPhoto: {
-    borderWidth: 3,
-    borderColor: Colors.primary,
-  },
-  recommendedPhoto: {
-    borderWidth: 2,
-    borderColor: Colors.success,
-  },
-  photoImage: {
-    width: '100%',
-    height: '100%',
-  },
-  photoOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'space-between',
-  },
-  recommendedBadge: {
-    position: 'absolute',
-    top: 4,
-    left: 4,
-    backgroundColor: Colors.success,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  recommendedText: {
-    fontSize: 10,
-    color: '#ffffff',
-    fontWeight: '600',
-  },
-  selectedBadge: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    backgroundColor: Colors.primary,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  selectedText: {
-    fontSize: 12,
-    color: '#ffffff',
-    fontWeight: 'bold',
-  },
-  photoInfo: {
-    position: 'absolute',
-    bottom: 4,
-    left: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  photoSize: {
-    fontSize: 10,
-    color: '#ffffff',
   },
   bottomBar: {
     flexDirection: 'row',
