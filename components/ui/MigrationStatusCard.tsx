@@ -4,15 +4,8 @@ import { ActionButton } from './ActionButton';
 import { StatCard } from './StatCard';
 import { ThemedText } from '../ThemedText';
 import { Colors, Spacing, Typography } from '../../src/utils/constants';
-import { databaseService } from '../../src/services/DatabaseService';
-
-interface MigrationStatus {
-  currentVersion: number;
-  latestVersion: number;
-  appliedMigrations: any[];
-  pendingMigrations: any[];
-  isUpToDate: boolean;
-}
+import { databaseService, migrationService } from '../../src/services';
+import type { MigrationStatus } from '../../src/types';
 
 export function MigrationStatusCard() {
   const [status, setStatus] = useState<MigrationStatus | null>(null);
@@ -26,7 +19,7 @@ export function MigrationStatusCard() {
   const loadMigrationStatus = async () => {
     try {
       setIsLoading(true);
-      const migrationStatus = await databaseService.getMigrationStatus();
+      const migrationStatus = await migrationService.getMigrationStatus();
       setStatus(migrationStatus);
     } catch (error) {
       console.error('Failed to load migration status:', error);
@@ -49,7 +42,7 @@ export function MigrationStatusCard() {
           onPress: async () => {
             try {
               setIsUpdating(true);
-              await databaseService.runMigrations();
+              await migrationService.runMigrations();
               await loadMigrationStatus();
               Alert.alert('完了', 'マイグレーションが正常に完了しました');
             } catch (error) {
@@ -126,7 +119,7 @@ export function MigrationStatusCard() {
         <StatCard
           icon="🆕"
           title="最新バージョン"
-          value={status.latestVersion.toString()}
+          value={status.targetVersion.toString()}
           color={Colors.info}
         />
       </View>
@@ -148,9 +141,9 @@ export function MigrationStatusCard() {
             未適用のマイグレーション: {status.pendingMigrations.length}件
           </ThemedText>
           {status.pendingMigrations.map((migration, index) => (
-            <View key={migration.version} style={styles.migrationItem}>
+            <View key={index} style={styles.migrationItem}>
               <ThemedText style={styles.migrationText}>
-                • v{migration.version}: {migration.name}
+                • {migration}
               </ThemedText>
             </View>
           ))}

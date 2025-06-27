@@ -7,7 +7,7 @@ import { SettingSection } from '@/components/ui/SettingSection';
 import { SettingItem } from '@/components/ui/SettingItem';
 import { ThemedText } from '@/components/ThemedText';
 import { Colors, Spacing, Typography } from '@/src/utils/constants';
-import { databaseService } from '@/src/services/DatabaseService';
+import { databaseService } from '@/src/services';
 import type { UserSettings } from '@/src/types';
 
 export default function SettingsScreen() {

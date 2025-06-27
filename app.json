@@ -48,7 +48,8 @@
           "savePhotosPermission": "写真を整理するために、フォトライブラリへの書き込み権限が必要です。",
           "isAccessMediaLocationEnabled": true
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true

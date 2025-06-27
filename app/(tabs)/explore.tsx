@@ -13,8 +13,7 @@ import { DuplicateGroupCard } from '@/components/ui/DuplicateGroupCard';
 import { DeletionConfirmDialog } from '@/components/ui/DeletionConfirmDialog';
 import { ThemedText } from '@/components/ThemedText';
 import { Colors, Spacing, Typography } from '@/src/utils/constants';
-import { databaseService } from '@/src/services/DatabaseService';
-import { duplicateDetectionService } from '@/src/services/DuplicateDetectionService';
+import { databaseService, duplicateDetectionService } from '@/src/services';
 import type { DuplicateGroup, PhotoMetadata } from '@/src/types';
 
 
