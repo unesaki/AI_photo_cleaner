@@ -7,6 +7,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
+import { router } from 'expo-router';
 import { ActionButton } from '@/components/ui/ActionButton';
 import { StatCard } from '@/components/ui/StatCard';
 import { DuplicateGroupCard } from '@/components/ui/DuplicateGroupCard';
@@ -23,6 +24,8 @@ export default function DuplicateResultsScreen() {
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showActionOptions, setShowActionOptions] = useState(true);
+  const [deletedPhotos, setDeletedPhotos] = useState<Set<string>>(new Set());
 
   useFocusEffect(
     useCallback(() => {
@@ -34,6 +37,10 @@ export default function DuplicateResultsScreen() {
     try {
       setIsLoading(true);
       const groups = await databaseService.getDuplicateGroups();
+      console.log('📊 Loaded duplicate groups:', groups.length);
+      groups.forEach((group, index) => {
+        console.log(`📊 Group ${index + 1}: ${group.photoCount} photos, ${group.photos.map(p => p.fileName).join(', ')}`);
+      });
       setDuplicateGroups(groups);
     } catch (error) {
       console.error('Failed to load duplicate groups:', error);
@@ -65,7 +72,7 @@ export default function DuplicateResultsScreen() {
 
   const deleteSelectedPhotos = async () => {
     if (selectedPhotos.size === 0) {
-      Alert.alert('注意', '削除する写真を選択してください');
+      Alert.alert('選択が必要です', '削除する重複写真を選択してください。');
       return;
     }
 
@@ -76,6 +83,9 @@ export default function DuplicateResultsScreen() {
     try {
       setIsDeleting(true);
       setShowDeleteConfirm(false);
+      
+      // Track which photos will be deleted for UI update
+      const photosToDelete = Array.from(selectedPhotos);
       
       // Group photos by their duplicate group for batch deletion
       const groupedDeletions = new Map<string, string[]>();
@@ -112,8 +122,16 @@ export default function DuplicateResultsScreen() {
         Alert.alert('削除完了', `${totalDeleted}枚の写真を削除しました`);
       }
 
+      // Update deleted photos state to show grayed out UI
+      const newDeletedPhotos = new Set(deletedPhotos);
+      photosToDelete.forEach(photoId => newDeletedPhotos.add(photoId));
+      setDeletedPhotos(newDeletedPhotos);
+
+      // Clear selection but keep the groups visible with grayed out deleted photos
       setSelectedPhotos(new Set());
-      await loadDuplicateGroups();
+      
+      // Don't reload duplicate groups - keep them visible with deleted photos grayed out
+      // await loadDuplicateGroups();
 
     } catch (error) {
       console.error('Deletion failed:', error);
@@ -152,6 +170,7 @@ export default function DuplicateResultsScreen() {
     <DuplicateGroupCard
       group={group}
       selectedPhotos={selectedPhotos}
+      deletedPhotos={deletedPhotos}
       onPhotoSelect={togglePhotoSelection}
       onSelectAllDuplicates={selectAllDuplicatesInGroup}
       showPhotoDetails={true}
@@ -177,6 +196,14 @@ export default function DuplicateResultsScreen() {
           <ThemedText style={styles.emptySubtitle}>
             あなたの写真ライブラリはすでに整理されています
           </ThemedText>
+          <View style={styles.emptyActionContainer}>
+            <ActionButton
+              title="TOPに戻る"
+              onPress={handleReturnToHome}
+              variant="primary"
+              style={styles.emptyActionButton}
+            />
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -185,10 +212,107 @@ export default function DuplicateResultsScreen() {
   const totalDuplicates = duplicateGroups.reduce((sum, group) => sum + (group.photoCount - 1), 0);
   const totalSavings = duplicateGroups.reduce((sum, group) => sum + group.totalSize, 0);
 
+  // If no actual duplicates exist (all groups only have 1 photo), show empty state
+  if (totalDuplicates === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.emptyContainer}>
+          <ThemedText style={styles.emptyTitle}>🎉 重複写真は見つかりませんでした</ThemedText>
+          <ThemedText style={styles.emptySubtitle}>
+            分析は完了しましたが、削除可能な重複写真はありませんでした
+          </ThemedText>
+          <View style={styles.emptyActionContainer}>
+            <ActionButton
+              title="TOPに戻る"
+              onPress={handleReturnToHome}
+              variant="primary"
+              style={styles.emptyActionButton}
+            />
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const handleMarkAsNotDuplicate = () => {
+    Alert.alert(
+      'AI学習',
+      'これらの写真は重複ではないとAIに学習させますか？',
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        { 
+          text: '学習させる', 
+          style: 'default',
+          onPress: () => {
+            // TODO: AI学習機能の実装
+            Alert.alert('完了', 'AIが学習しました。今後の精度が向上します。');
+            setShowActionOptions(false);
+          }
+        }
+      ]
+    );
+  };
+
+  const handleReturnToHome = () => {
+    router.push('/');
+  };
+
+  const handleProceedWithDeletion = () => {
+    console.log('🔍 handleProceedWithDeletion called');
+    console.log('🔍 selectedPhotos.size:', selectedPhotos.size);
+    console.log('🔍 totalDuplicates:', totalDuplicates);
+    console.log('🔍 duplicateGroups.length:', duplicateGroups.length);
+    
+    // Check if any photos are selected
+    if (selectedPhotos.size === 0) {
+      console.log('⚠️ No photos selected, showing alert');
+      Alert.alert(
+        '選択が必要です', 
+        '削除する重複写真を選択してください。\n\n画像をタップして選択してから削除ボタンを押してください。',
+        [{ text: 'OK', style: 'default' }]
+      );
+      return;
+    }
+    
+    console.log('✅ Photos selected, proceeding with deletion confirmation');
+    // Don't hide action options, just proceed with deletion confirmation
+    setShowDeleteConfirm(true);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <ThemedText style={styles.title}>重複写真結果</ThemedText>
+        <ThemedText style={styles.title}>重複写真の検出結果</ThemedText>
+        <ThemedText style={styles.resultSummary}>
+          {totalDuplicates}枚の重複写真が見つかりました
+        </ThemedText>
+        
+        {showActionOptions && (
+          <View style={styles.actionOptionsCard}>
+            <ThemedText style={styles.actionOptionsTitle}>どうしますか？</ThemedText>
+            <View style={styles.actionOptionsButtons}>
+              <ActionButton
+                title="重複を削除"
+                onPress={handleProceedWithDeletion}
+                variant="danger"
+                style={styles.actionOptionButton}
+              />
+              <ActionButton
+                title="重複ではない"
+                onPress={handleMarkAsNotDuplicate}
+                variant="secondary"
+                style={styles.actionOptionButton}
+              />
+              <ActionButton
+                title="TOPに戻る"
+                onPress={handleReturnToHome}
+                variant="secondary"
+                style={styles.actionOptionButton}
+              />
+            </View>
+          </View>
+        )}
+
         <View style={styles.statsRow}>
           <StatCard
             icon="🗑️"
@@ -276,6 +400,14 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
   },
+  emptyActionContainer: {
+    marginTop: Spacing.xl,
+    width: '100%',
+    alignItems: 'center',
+  },
+  emptyActionButton: {
+    minWidth: 150,
+  },
   header: {
     padding: Spacing.lg,
     borderBottomWidth: 1,
@@ -284,7 +416,33 @@ const styles = StyleSheet.create({
   title: {
     ...Typography.h1,
     color: Colors.textPrimary,
+    marginBottom: Spacing.sm,
+  },
+  resultSummary: {
+    ...Typography.body,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: Spacing.lg,
+  },
+  actionOptionsCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    padding: Spacing.lg,
+    marginBottom: Spacing.lg,
+    borderWidth: 1,
+    borderColor: Colors.gray100,
+  },
+  actionOptionsTitle: {
+    ...Typography.h2,
+    color: Colors.textPrimary,
+    textAlign: 'center',
     marginBottom: Spacing.md,
+  },
+  actionOptionsButtons: {
+    gap: Spacing.sm,
+  },
+  actionOptionButton: {
+    width: '100%',
   },
   statsRow: {
     flexDirection: 'row',

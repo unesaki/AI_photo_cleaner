@@ -12,7 +12,8 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "このアプリは重複写真を検出するために、フォトライブラリへのアクセスが必要です。"
-      }
+      },
+      "bundleIdentifier": "com.anonymous.ai-photo-cleaner"
     },
     "android": {
       "adaptiveIcon": {
@@ -22,7 +23,10 @@
       "edgeToEdgeEnabled": true,
       "permissions": [
         "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.ACCESS_MEDIA_LOCATION"
       ]
     },
     "web": {

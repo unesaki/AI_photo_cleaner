@@ -1,5 +1,6 @@
 // Web Mock version of PhotoLibraryService for testing
 import { databaseService } from './DatabaseService.web';
+import { MockDataService } from './MockDataService';
 import type { PhotoMetadata } from '../types';
 
 class MockPhotoLibraryService {
@@ -18,67 +19,57 @@ class MockPhotoLibraryService {
   async loadPhotos(
     onProgress?: (current: number, total: number) => void
   ): Promise<PhotoMetadata[]> {
-    // Generate mock photos with random images
-    const mockPhotos: Omit<PhotoMetadata, 'id'>[] = [];
-    const total = 20; // Generate 20 mock photos
+    console.log('🔄 PhotoLibraryService.web: Loading mock photos...');
+    const mockPhotos = MockDataService.getMockPhotos();
+    const total = mockPhotos.length;
+    console.log(`🔄 Total mock photos: ${total}`);
+    
+    // Print mock data stats
+    MockDataService.getStats();
 
+    // Simulate loading progress
     for (let i = 1; i <= total; i++) {
       if (onProgress) {
         onProgress(i, total);
       }
-
       // Simulate loading time
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      const photo: Omit<PhotoMetadata, 'id'> = {
-        filePath: `https://picsum.photos/400/600?random=${i}`,
-        fileName: `mock_photo_${i}.jpg`,
-        fileSize: Math.floor(Math.random() * 3000000) + 500000, // 0.5MB - 3.5MB
-        width: 400,
-        height: 600,
-        createdAt: Date.now() - (Math.floor(Math.random() * 30) * 24 * 60 * 60 * 1000), // Random date within last 30 days
-        modifiedAt: Date.now() - (Math.floor(Math.random() * 30) * 24 * 60 * 60 * 1000),
-        hash: undefined, // Will be calculated during analysis
-        isDuplicate: false
-      };
-
-      mockPhotos.push(photo);
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
 
-    // Add some intentional duplicates for testing
-    if (mockPhotos.length >= 4) {
-      // Make photos 2 and 3 duplicates
-      mockPhotos[2] = {
-        ...mockPhotos[1],
-        fileName: 'mock_photo_3_duplicate.jpg',
-        filePath: mockPhotos[1].filePath, // Same image
-      };
-
-      // Make photos 5 and 6 duplicates
-      if (mockPhotos.length >= 6) {
-        mockPhotos[5] = {
-          ...mockPhotos[4],
-          fileName: 'mock_photo_6_duplicate.jpg',
-          filePath: mockPhotos[4].filePath, // Same image
-        };
+    // Save photos to mock database (simulate real database operations)
+    const savedPhotos: PhotoMetadata[] = [];
+    for (const photo of mockPhotos) {
+      try {
+        const id = await databaseService.savePhoto({
+          localIdentifier: photo.localIdentifier,
+          filePath: photo.filePath,
+          fileName: photo.fileName,
+          fileSize: photo.fileSize,
+          width: photo.width,
+          height: photo.height,
+          creationDate: photo.creationDate,
+          modificationDate: photo.modificationDate,
+          hashValue: photo.hashValue,
+          qualityScore: photo.qualityScore,
+          isDuplicate: photo.isDuplicate,
+          isDeleted: photo.isDeleted
+        });
+        savedPhotos.push({ ...photo, id: id.toString() });
+      } catch (error) {
+        console.error('Failed to save mock photo:', error);
+        // Include the photo anyway for testing
+        savedPhotos.push(photo);
       }
     }
 
-    // Save photos to mock database
-    const savedPhotos: PhotoMetadata[] = [];
-    for (const photo of mockPhotos) {
-      const id = await databaseService.addPhoto(photo);
-      savedPhotos.push({ ...photo, id });
-    }
-
-    console.log(`Mock: Loaded ${savedPhotos.length} photos`);
+    console.log(`Mock: Loaded ${savedPhotos.length} photos with ${MockDataService.getStats().duplicateGroups} duplicate groups`);
     return savedPhotos;
   }
 
   async getPhotoCount(): Promise<number> {
     // Simulate getting photo count
     await new Promise(resolve => setTimeout(resolve, 100));
-    return 20; // Mock count
+    return MockDataService.getMockPhotoCount();
   }
 
   async refreshPhotoLibrary(): Promise<PhotoMetadata[]> {

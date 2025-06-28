@@ -112,6 +112,8 @@ class MockDatabaseService {
     firstLaunchCompleted: true
   };
 
+  private mockAnalysisSessions: any[] = [];
+
   async initialize(): Promise<void> {
     console.log('Mock DatabaseService initialized for web');
     // Simulate async initialization
@@ -130,6 +132,20 @@ class MockDatabaseService {
     const newPhoto: PhotoMetadata = {
       ...photo,
       id
+    };
+    this.mockPhotos.push(newPhoto);
+    return id;
+  }
+
+  async savePhoto(photo: Omit<PhotoMetadata, 'id' | 'createdAt' | 'updatedAt'>): Promise<number> {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const id = Date.now();
+    const now = new Date().toISOString();
+    const newPhoto: PhotoMetadata = {
+      ...photo,
+      id: id.toString(),
+      createdAt: now,
+      updatedAt: now
     };
     this.mockPhotos.push(newPhoto);
     return id;
@@ -264,6 +280,46 @@ class MockDatabaseService {
   async runMigrations(): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, 500));
     console.log('Mock migrations completed');
+  }
+
+  async createAnalysisSession(totalPhotos: number): Promise<string> {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const sessionUuid = `session_${Date.now()}`;
+    const session = {
+      id: sessionUuid,
+      sessionUuid,
+      totalPhotos,
+      analyzedPhotos: 0,
+      duplicatesFound: 0,
+      totalSizeAnalyzed: 0,
+      potentialSpaceSaved: 0,
+      startTime: new Date().toISOString(),
+      endTime: null,
+      status: 'running',
+      errorMessage: null
+    };
+    this.mockAnalysisSessions.push(session);
+    console.log('💾 Mock: Created analysis session:', sessionUuid);
+    return sessionUuid;
+  }
+
+  async updateAnalysisSession(sessionUuid: string, updates: any): Promise<void> {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const session = this.mockAnalysisSessions.find(s => s.sessionUuid === sessionUuid);
+    if (session) {
+      Object.assign(session, updates);
+      console.log('💾 Mock: Updated analysis session:', sessionUuid, updates);
+    }
+  }
+
+  async getLatestAnalysisSession(): Promise<any | null> {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const sessions = this.mockAnalysisSessions.sort((a, b) => 
+      new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
+    );
+    const latest = sessions[0] || null;
+    console.log('💾 Mock: Latest analysis session:', latest);
+    return latest;
   }
 }
 

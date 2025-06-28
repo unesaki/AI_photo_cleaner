@@ -15,6 +15,7 @@ import type { DuplicateGroup, PhotoMetadata } from '../../src/types';
 interface DuplicateGroupCardProps {
   group: DuplicateGroup;
   selectedPhotos: Set<string>;
+  deletedPhotos?: Set<string>;
   onPhotoSelect: (photoId: string) => void;
   onSelectAllDuplicates: (group: DuplicateGroup) => void;
   showPhotoDetails?: boolean;
@@ -26,6 +27,7 @@ const screenWidth = Dimensions.get('window').width;
 export function DuplicateGroupCard({
   group,
   selectedPhotos,
+  deletedPhotos = new Set(),
   onPhotoSelect,
   onSelectAllDuplicates,
   showPhotoDetails = true,
@@ -76,6 +78,7 @@ export function DuplicateGroupCard({
   const renderPhotoItem = useCallback((photo: PhotoMetadata) => {
     const isSelected = selectedPhotos.has(photo.id);
     const isRecommendedKeep = photo.id === group.recommendedKeepId;
+    const isDeleted = deletedPhotos.has(photo.id);
     const hasError = imageErrors.has(photo.id);
 
     return (
@@ -85,25 +88,33 @@ export function DuplicateGroupCard({
           styles.photoItem,
           { width: cardWidth, height: cardWidth },
           isSelected && styles.selectedPhoto,
-          isRecommendedKeep && styles.recommendedPhoto
+          isRecommendedKeep && styles.recommendedPhoto,
+          isDeleted && styles.deletedPhoto
         ]}
-        onPress={() => onPhotoSelect(photo.id)}
-        disabled={isRecommendedKeep}
-        activeOpacity={0.8}
+        onPress={() => !isDeleted && onPhotoSelect(photo.id)}
+        disabled={isRecommendedKeep || isDeleted}
+        activeOpacity={isDeleted ? 1 : 0.8}
       >
         {!hasError ? (
           <Image
             source={{ uri: photo.filePath }}
-            style={styles.photoImage}
+            style={[styles.photoImage, isDeleted && styles.deletedImage]}
             contentFit="cover"
             onError={() => handleImageError(photo.id)}
             placeholder={{ blurhash: 'L6PZfSi_.AyE_3t7t7R**0o#DgR4' }}
             transition={200}
           />
         ) : (
-          <View style={styles.errorContainer}>
+          <View style={[styles.errorContainer, isDeleted && styles.deletedImage]}>
             <ThemedText style={styles.errorText}>📷</ThemedText>
             <ThemedText style={styles.errorSubtext}>読み込み失敗</ThemedText>
+          </View>
+        )}
+
+        {/* Deleted state overlay */}
+        {isDeleted && (
+          <View style={styles.deletedOverlay}>
+            <ThemedText style={styles.deletedText}>削除済み</ThemedText>
           </View>
         )}
 
@@ -141,7 +152,7 @@ export function DuplicateGroupCard({
         </View>
       </TouchableOpacity>
     );
-  }, [cardWidth, selectedPhotos, imageErrors, group.recommendedKeepId, showPhotoDetails, onPhotoSelect, handleImageError, formatFileSize, formatCreatedDate]);
+  }, [cardWidth, selectedPhotos, deletedPhotos, imageErrors, group.recommendedKeepId, showPhotoDetails, onPhotoSelect, handleImageError, formatFileSize, formatCreatedDate]);
 
   const renderCompactHeader = () => (
     <TouchableOpacity
@@ -368,6 +379,31 @@ const styles = StyleSheet.create({
   recommendedPhoto: {
     borderWidth: 2,
     borderColor: Colors.success,
+  },
+  deletedPhoto: {
+    opacity: 0.5,
+  },
+  deletedImage: {
+    opacity: 0.5,
+  },
+  deletedOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  deletedText: {
+    fontSize: 12,
+    color: '#ffffff',
+    fontWeight: 'bold',
+    backgroundColor: Colors.danger,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
   },
   photoImage: {
     width: '100%',

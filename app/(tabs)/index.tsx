@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ScrollView, StyleSheet, View, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import { ActionButton } from '@/components/ui/ActionButton';
 import { StatCard } from '@/components/ui/StatCard';
 import { ProgressCard } from '@/components/ui/ProgressCard';
@@ -36,24 +37,32 @@ export default function DashboardScreen() {
         setPhotoCount(count);
       }
       
-      // Get stats instead of session for now
+      // Get latest analysis session
+      console.log('🔄 Loading latest analysis session...');
       try {
-        const stats = await databaseService.getStats();
-        // Create a mock session from stats
-        if (stats.duplicatePhotos > 0) {
+        const latestSession = await databaseService.getLatestAnalysisSession();
+        console.log('🔄 Latest session found:', latestSession);
+        if (latestSession) {
+          // Convert database session to expected format
           setLastSession({
-            id: 'mock_session',
-            startedAt: Date.now() - 86400000,
-            completedAt: Date.now() - 86400000 + 60000,
-            photosAnalyzed: stats.totalPhotos,
-            duplicatesFound: stats.duplicatePhotos,
-            spaceSaved: stats.duplicateSize,
-            status: 'completed'
-          } as AnalysisSession);
+            id: latestSession.id,
+            sessionUuid: latestSession.sessionUuid,
+            totalPhotos: latestSession.totalPhotos,
+            analyzedPhotos: latestSession.analyzedPhotos,
+            duplicatesFound: latestSession.duplicatesFound || 0,
+            totalSizeAnalyzed: latestSession.totalSizeAnalyzed,
+            potentialSpaceSaved: latestSession.potentialSpaceSaved || 0,
+            startTime: latestSession.startTime,
+            endTime: latestSession.endTime,
+            status: latestSession.status,
+            errorMessage: latestSession.errorMessage
+          });
+          console.log('✅ Last session set successfully');
+        } else {
+          console.log('ℹ️ No previous analysis session found');
         }
       } catch (error) {
-        // Ignore if stats not available
-        console.log('Stats not available yet');
+        console.log('❌ Error loading analysis session:', error);
       }
       
     } catch (error) {
@@ -90,69 +99,111 @@ export default function DashboardScreen() {
   };
 
   const startAnalysis = async () => {
+    console.log('🔍 Starting analysis...');
+    
     if (!hasPermission) {
+      console.log('❌ No permission, requesting...');
       await requestPermissions();
       return;
     }
 
+    let sessionUuid: string | null = null;
+    const startTime = new Date();
+
     try {
+      console.log('✅ Setting analysis state...');
       setIsAnalyzing(true);
       setAnalysisProgress(0);
       setAnalysisMessage('準備中...');
 
       // Load photos from library
+      console.log('📸 Loading photos...');
       setAnalysisMessage('写真を読み込み中...');
-      const photos = await photoLibraryService.loadPhotos((current, total) => {
+      const photos = await photoLibraryService.loadPhotos((current: number, total: number) => {
         setAnalysisProgress((current / total) * 0.3); // 30% for loading
         setAnalysisMessage(`写真を読み込み中... ${current}/${total}`);
       });
       
+      console.log(`📸 Loaded ${photos.length} photos`);
+      
       if (photos.length === 0) {
+        console.log('❌ No photos found');
         Alert.alert('情報', '分析する写真が見つかりませんでした');
         return;
       }
 
+      // Create analysis session
+      console.log('💾 Creating analysis session...');
+      sessionUuid = await databaseService.createAnalysisSession(photos.length);
+      console.log(`💾 Created session: ${sessionUuid}`);
+
       // Start analysis
+      console.log('🧠 Starting duplicate analysis...');
       setAnalysisMessage('重複を分析中...');
-      const result = await duplicateDetectionService.analyzePhotos((current, total) => {
+      const result = await duplicateDetectionService.analyzePhotos((current: number, total: number) => {
         setAnalysisProgress(0.3 + (current / total) * 0.7); // 70% for analysis
         setAnalysisMessage(`重複を分析中... ${current}/${total}`);
       });
+      
+      console.log('🧠 Analysis result:', result);
 
       // Update photo count
       setPhotoCount(photos.length);
 
-      // Create and save analysis session
-      const newSession: AnalysisSession = {
-        id: `session_${Date.now()}`,
-        startedAt: Date.now() - (analysisProgress * 60000), // Approximate start time
-        completedAt: Date.now(),
-        photosAnalyzed: photos.length,
+      const endTime = new Date();
+
+      // Update analysis session with results
+      await databaseService.updateAnalysisSession(sessionUuid, {
+        analyzedPhotos: photos.length,
         duplicatesFound: result.totalDuplicates,
-        spaceSaved: result.spaceSaved,
+        potentialSpaceSaved: result.spaceSaved,
+        endTime: endTime.toISOString(),
+        status: 'completed'
+      });
+
+      // Create session object for UI
+      const newSession: AnalysisSession = {
+        id: sessionUuid!,
+        sessionUuid: sessionUuid!,
+        totalPhotos: photos.length,
+        analyzedPhotos: photos.length,
+        duplicatesFound: result.totalDuplicates,
+        totalSizeAnalyzed: result.spaceSaved,
+        potentialSpaceSaved: result.spaceSaved,
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
         status: 'completed'
       };
       setLastSession(newSession);
 
-      // Show results with action options
-      Alert.alert(
-        '分析完了',
-        `分析が完了しました。\n\n📊 結果:\n• 分析した写真: ${photos.length}枚\n• 重複写真: ${result.totalDuplicates}枚\n• 節約可能容量: ${(result.spaceSaved / 1024 / 1024).toFixed(1)}MB`,
-        [
-          { text: 'OK', style: 'default' },
-          { 
-            text: '結果を見る', 
-            style: 'default',
-            onPress: () => {
-              // Navigate to results tab - in a real app you'd use router
-              console.log('Navigate to results tab');
-            }
-          }
-        ]
-      );
+      // Immediately navigate to results screen
+      console.log('🎯 Navigating to results screen...');
+      router.push('/explore');
+
+      // Show success message briefly without blocking navigation
+      setTimeout(() => {
+        Alert.alert(
+          '分析完了',
+          `重複写真が${result.totalDuplicates}枚検出されました。`,
+          [{ text: 'OK', style: 'default' }]
+        );
+      }, 500);
 
     } catch (error) {
       console.error('Analysis failed:', error);
+      
+      // Update session with error if it was created
+      if (sessionUuid) {
+        try {
+          await databaseService.updateAnalysisSession(sessionUuid, {
+            status: 'failed',
+            errorMessage: error instanceof Error ? error.message : 'Unknown error'
+          });
+        } catch (updateError) {
+          console.error('Failed to update session with error:', updateError);
+        }
+      }
+      
       Alert.alert('エラー', '分析に失敗しました');
     } finally {
       setIsAnalyzing(false);
@@ -233,7 +284,14 @@ export default function DashboardScreen() {
         </View>
 
         {/* Last Analysis Results */}
-        {lastSession && lastSession.status === 'completed' && (
+        {(() => {
+          console.log('🔍 Checking lastSession display condition:', {
+            hasSession: !!lastSession,
+            status: lastSession?.status,
+            shouldShow: lastSession && lastSession.status === 'completed'
+          });
+          return lastSession && lastSession.status === 'completed';
+        })() && (
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>📈 前回の整理効果</ThemedText>
             <View style={styles.resultsGrid}>
@@ -246,23 +304,19 @@ export default function DashboardScreen() {
               <StatCard
                 icon="💾"
                 title="容量削減"
-                value={formatFileSize(lastSession.spaceSaved)}
+                value={formatFileSize(lastSession.potentialSpaceSaved || 0)}
                 color={Colors.info}
               />
             </View>
             <ThemedText style={styles.lastAnalysisDate}>
-              最終分析: {formatDate(lastSession.completedAt)}
+              最終分析: {formatDate(lastSession.endTime ? new Date(lastSession.endTime).getTime() : Date.now())}
             </ThemedText>
             
             <View style={styles.actionRow}>
               <ActionButton
                 title="詳細を見る"
                 onPress={() => {
-                  // In a real app, you'd navigate to results tab
-                  Alert.alert(
-                    '分析結果詳細',
-                    `📊 前回分析の詳細:\n\n• 分析日時: ${new Date(lastSession.completedAt).toLocaleString('ja-JP')}\n• 分析した写真: ${lastSession.photosAnalyzed}枚\n• 検出した重複: ${lastSession.duplicatesFound}枚\n• 節約可能容量: ${formatFileSize(lastSession.spaceSaved)}\n\n「結果」タブで削除や管理ができます。`
-                  );
+                  router.push('/explore');
                 }}
                 variant="secondary"
                 style={styles.detailButton}
