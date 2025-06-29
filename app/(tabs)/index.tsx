@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ScrollView, StyleSheet, View, Alert } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { ActionButton } from '@/components/ui/ActionButton';
@@ -23,6 +24,50 @@ export default function DashboardScreen() {
     initializeApp();
   }, []);
 
+  // Reload stats when screen comes into focus (e.g., after deletion)
+  useFocusEffect(
+    useCallback(() => {
+      console.log('🔄 Dashboard focused, reloading session stats...');
+      loadSessionStats();
+    }, [])
+  );
+
+  const loadSessionStats = async () => {
+    try {
+      console.log('🔄 Loading latest analysis session...');
+      const latestSession = await databaseService.getLatestAnalysisSession();
+      console.log('🔄 Latest session found:', latestSession);
+      if (latestSession) {
+        console.log('📊 Latest session data:');
+        console.log('  - duplicatesFound:', latestSession.duplicatesFound);
+        console.log('  - potentialSpaceSaved:', latestSession.potentialSpaceSaved);
+        console.log('  - status:', latestSession.status);
+        console.log('  - endTime:', latestSession.endTime);
+        console.log('  - endTime type:', typeof latestSession.endTime);
+        
+        // Convert database session to expected format
+        setLastSession({
+          id: latestSession.id,
+          sessionUuid: latestSession.sessionUuid,
+          totalPhotos: latestSession.totalPhotos,
+          analyzedPhotos: latestSession.analyzedPhotos,
+          duplicatesFound: latestSession.duplicatesFound || 0,
+          totalSizeAnalyzed: latestSession.totalSizeAnalyzed,
+          potentialSpaceSaved: latestSession.potentialSpaceSaved || 0,
+          startTime: latestSession.startTime,
+          endTime: latestSession.endTime,
+          status: latestSession.status,
+          errorMessage: latestSession.errorMessage
+        });
+        console.log('✅ Last session set successfully');
+      } else {
+        console.log('ℹ️ No previous analysis session found');
+      }
+    } catch (error) {
+      console.error('Failed to load session stats:', error);
+    }
+  };
+
   const initializeApp = async () => {
     try {
       // Initialize database
@@ -38,33 +83,8 @@ export default function DashboardScreen() {
         setPhotoCount(count);
       }
       
-      // Get latest analysis session
-      console.log('🔄 Loading latest analysis session...');
-      try {
-        const latestSession = await databaseService.getLatestAnalysisSession();
-        console.log('🔄 Latest session found:', latestSession);
-        if (latestSession) {
-          // Convert database session to expected format
-          setLastSession({
-            id: latestSession.id,
-            sessionUuid: latestSession.sessionUuid,
-            totalPhotos: latestSession.totalPhotos,
-            analyzedPhotos: latestSession.analyzedPhotos,
-            duplicatesFound: latestSession.duplicatesFound || 0,
-            totalSizeAnalyzed: latestSession.totalSizeAnalyzed,
-            potentialSpaceSaved: latestSession.potentialSpaceSaved || 0,
-            startTime: latestSession.startTime,
-            endTime: latestSession.endTime,
-            status: latestSession.status,
-            errorMessage: latestSession.errorMessage
-          });
-          console.log('✅ Last session set successfully');
-        } else {
-          console.log('ℹ️ No previous analysis session found');
-        }
-      } catch (error) {
-        console.log('❌ Error loading analysis session:', error);
-      }
+      // Load latest analysis session
+      await loadSessionStats();
       
     } catch (error) {
       console.error('Failed to initialize app:', error);
@@ -271,19 +291,67 @@ export default function DashboardScreen() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
-  const formatDate = (timestamp: number): string => {
-    if (!timestamp || isNaN(timestamp)) return '未実行';
+  const formatDate = (dateInput: string | number | null | undefined): string => {
+    if (!dateInput) return '未実行';
     
-    const date = new Date(timestamp);
+    let date: Date;
+    try {
+      if (typeof dateInput === 'string') {
+        date = new Date(dateInput);
+      } else if (typeof dateInput === 'number') {
+        date = new Date(dateInput);
+      } else {
+        return '未実行';
+      }
+      
+      if (isNaN(date.getTime())) return '未実行';
+    } catch (error) {
+      console.error('Date parsing error:', error);
+      return '未実行';
+    }
+    
+    console.log('📅 Formatting date:', dateInput, '→', date.toISOString());
+    
     const now = new Date();
     const diffTime = Math.abs(now.getTime() - date.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    const diffHours = Math.floor(diffTime / (1000 * 60 * 60));
+    const diffMinutes = Math.floor(diffTime / (1000 * 60));
     
-    if (diffDays === 0) return '今日';
-    if (diffDays === 1) return '1日前';
-    if (diffDays < 7) return `${diffDays}日前`;
-    if (diffDays < 30) return `${Math.ceil(diffDays / 7)}週間前`;
-    return `${Math.ceil(diffDays / 30)}ヶ月前`;
+    // For recent times, show more precise information
+    if (diffMinutes < 60) {
+      return diffMinutes < 1 ? 'たった今' : `${diffMinutes}分前`;
+    }
+    if (diffHours < 24) {
+      return `${diffHours}時間前`;
+    }
+    if (diffDays === 0) {
+      return '今日';
+    }
+    if (diffDays === 1) {
+      return '1日前';
+    }
+    if (diffDays < 7) {
+      return `${diffDays}日前`;
+    }
+    
+    // For older dates, show actual date
+    if (diffDays < 30) {
+      return date.toLocaleDateString('ja-JP', { 
+        month: 'numeric', 
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric'
+      });
+    }
+    
+    return date.toLocaleDateString('ja-JP', { 
+      year: 'numeric',
+      month: 'numeric', 
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric'
+    });
   };
 
   return (
@@ -349,7 +417,7 @@ export default function DashboardScreen() {
               <StatCard
                 icon="🗑️"
                 title="重複検出"
-                value={lastSession?.duplicatesFound + '枚'}
+                value={`${lastSession?.duplicatesFound || 0}枚`}
                 color={Colors.success}
               />
               <StatCard
@@ -360,7 +428,7 @@ export default function DashboardScreen() {
               />
             </View>
             <ThemedText style={styles.lastAnalysisDate}>
-              最終分析: {formatDate(lastSession?.endTime ? new Date(lastSession.endTime).getTime() : Date.now())}
+              最終分析: {formatDate(lastSession?.endTime)}
             </ThemedText>
             
             <View style={styles.actionRow}>

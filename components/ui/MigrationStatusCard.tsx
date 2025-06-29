@@ -4,7 +4,7 @@ import { ActionButton } from './ActionButton';
 import { StatCard } from './StatCard';
 import { ThemedText } from '../ThemedText';
 import { Colors, Spacing, Typography } from '../../src/utils/constants';
-import { databaseService, migrationService } from '../../src/services';
+import { databaseService } from '../../src/services';
 import type { MigrationStatus } from '../../src/types';
 
 export function MigrationStatusCard() {
@@ -19,11 +19,29 @@ export function MigrationStatusCard() {
   const loadMigrationStatus = async () => {
     try {
       setIsLoading(true);
-      const migrationStatus = await migrationService.getMigrationStatus();
+      
+      // Ensure database service is initialized
+      try {
+        await databaseService.initialize();
+      } catch (initError) {
+        // Database might already be initialized, ignore error
+        console.log('Database already initialized or initialization failed:', initError);
+      }
+      
+      const migrationStatus = await databaseService.getMigrationStatus();
       setStatus(migrationStatus);
     } catch (error) {
       console.error('Failed to load migration status:', error);
-      Alert.alert('エラー', 'マイグレーション状況の取得に失敗しました');
+      
+      // Provide more specific error message
+      let errorMessage = 'マイグレーション状況の取得に失敗しました';
+      if (error instanceof Error) {
+        if (error.message.includes('not initialized')) {
+          errorMessage = 'データベースが初期化されていません。アプリを再起動してください。';
+        }
+      }
+      
+      Alert.alert('エラー', errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -42,7 +60,7 @@ export function MigrationStatusCard() {
           onPress: async () => {
             try {
               setIsUpdating(true);
-              await migrationService.runMigrations();
+              await databaseService.runMigrations();
               await loadMigrationStatus();
               Alert.alert('完了', 'マイグレーションが正常に完了しました');
             } catch (error) {

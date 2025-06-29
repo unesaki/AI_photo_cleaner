@@ -383,6 +383,38 @@ export class DuplicateDetectionService {
     }
   }
   
+  /**
+   * Update analysis session statistics after deletion
+   */
+  async updateSessionAfterDeletion(deletedCount: number, spaceSaved: number): Promise<void> {
+    try {
+      console.log('📊 Updating session statistics after deletion...');
+      console.log(`📊 Deleted photos: ${deletedCount}, Space saved: ${spaceSaved} bytes`);
+      
+      const latestSession = await databaseService.getLatestAnalysisSession();
+      if (!latestSession) {
+        console.warn('📊 ⚠️ No analysis session found to update');
+        return;
+      }
+      
+      // Calculate actual space saved
+      const spaceMB = (spaceSaved / (1024 * 1024)).toFixed(1);
+      console.log(`📊 Space saved: ${spaceMB}MB`);
+      
+      // Update session with actual deletion results
+      await databaseService.updateAnalysisSession(latestSession.sessionUuid, {
+        potentialSpaceSaved: spaceSaved,
+        duplicatesFound: deletedCount,
+        endTime: new Date().toISOString(),
+        status: 'completed'
+      });
+      
+      console.log('📊 ✅ Session statistics updated successfully');
+    } catch (error) {
+      console.error('📊 ❌ Failed to update session statistics:', error);
+    }
+  }
+  
   formatAnalysisResult(result: AnalysisResult): string {
     const { totalPhotos, duplicatesFound, potentialSpaceSaved, processingTime } = result;
     

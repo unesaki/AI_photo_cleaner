@@ -22,22 +22,38 @@ export class DatabaseService {
 
   // Migration related methods
   async getMigrationStatus() {
-    if (!this.migrationService) throw new Error('Migration service not initialized');
+    if (!this.migrationService) {
+      console.error('Migration service not initialized');
+      throw new Error('Migration service not initialized. Please call initialize() first.');
+    }
+    if (!this.db) {
+      console.error('Database not initialized');
+      throw new Error('Database not initialized. Please call initialize() first.');
+    }
     return await this.migrationService.getMigrationStatus();
   }
 
   async runMigrations(): Promise<void> {
-    if (!this.migrationService) throw new Error('Migration service not initialized');
+    if (!this.migrationService) {
+      console.error('Migration service not initialized');
+      throw new Error('Migration service not initialized. Please call initialize() first.');
+    }
     await this.migrationService.runMigrations();
   }
 
   async rollbackToVersion(version: number): Promise<void> {
-    if (!this.migrationService) throw new Error('Migration service not initialized');
+    if (!this.migrationService) {
+      console.error('Migration service not initialized');
+      throw new Error('Migration service not initialized. Please call initialize() first.');
+    }
     await this.migrationService.rollbackMigration(version);
   }
 
   async resetDatabase(): Promise<void> {
-    if (!this.migrationService) throw new Error('Migration service not initialized');
+    if (!this.migrationService) {
+      console.error('Migration service not initialized');
+      throw new Error('Migration service not initialized. Please call initialize() first.');
+    }
     await this.migrationService.resetDatabase();
     
     // Reinitialize after reset

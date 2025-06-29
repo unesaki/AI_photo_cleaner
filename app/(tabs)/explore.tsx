@@ -146,22 +146,55 @@ export default function DuplicateResultsScreen() {
       const errors: string[] = [];
 
       for (const [groupId, photoIdsInGroup] of groupedDeletions) {
+        console.log(`🗑️ Processing deletion for group ${groupId} with ${photoIdsInGroup.length} photos`);
         const result = await duplicateDetectionService.deleteDuplicatePhotos(
           groupId, 
           photoIdsInGroup
         );
         
+        console.log(`🗑️ Deletion result:`, result);
+        console.log(`🗑️ Current totalDeleted: ${totalDeleted}, Adding: ${result.deletedCount}`);
+        
         totalDeleted += result.deletedCount;
         errors.push(...result.errors);
+        
+        console.log(`🗑️ New totalDeleted: ${totalDeleted}`);
       }
+
+      // Calculate total space saved from deleted photos
+      const totalSpaceSaved = Array.from(selectedPhotos).reduce((total, photoId) => {
+        for (const group of duplicateGroups) {
+          const photo = group.photos.find(p => p.id === photoId);
+          if (photo) {
+            return total + photo.fileSize;
+          }
+        }
+        return total;
+      }, 0);
+
+      // Update analysis session statistics
+      if (totalDeleted > 0) {
+        try {
+          await duplicateDetectionService.updateSessionAfterDeletion(totalDeleted, totalSpaceSaved);
+          console.log(`📊 Updated session: ${totalDeleted} photos deleted, ${(totalSpaceSaved / 1024 / 1024).toFixed(1)}MB saved`);
+        } catch (error) {
+          console.error('Failed to update session statistics:', error);
+        }
+      }
+
+      console.log(`🗑️ === DELETION SUMMARY ===`);
+      console.log(`🗑️ Total deleted: ${totalDeleted} (type: ${typeof totalDeleted})`);
+      console.log(`🗑️ Total space saved: ${totalSpaceSaved} bytes`);
+      console.log(`🗑️ Errors: ${errors.length}`);
+      console.log(`🗑️ =========================`);
 
       if (errors.length > 0) {
         Alert.alert(
           '一部削除に失敗',
-          `${totalDeleted}枚削除しました。${errors.length}件のエラーが発生しました。`
+          `${totalDeleted || 0}枚削除しました。${errors.length}件のエラーが発生しました。`
         );
       } else {
-        Alert.alert('削除完了', `${totalDeleted}枚の写真を削除しました`);
+        Alert.alert('削除完了', `${totalDeleted || 0}枚の写真を削除しました\n容量削減: ${(totalSpaceSaved / 1024 / 1024).toFixed(1)}MB`);
       }
 
       // Update deleted photos state to show grayed out UI

@@ -14,6 +14,7 @@ export const photoLibraryService = Platform.OS === 'web'
   ? require('./PhotoLibraryService.web').photoLibraryService
   : require('./PhotoLibraryService').photoLibraryService;
 
-export const migrationService = Platform.OS === 'web'
-  ? require('./MigrationService.web').migrationService
-  : require('./MigrationService').migrationService;
+// Migration service is accessed through databaseService
+// export const migrationService = Platform.OS === 'web'
+//   ? require('./MigrationService.web').migrationService
+//   : require('./MigrationService').migrationService;
