@@ -65,28 +65,51 @@ export class DatabaseService {
   async savePhoto(photo: Omit<PhotoMetadata, 'id' | 'createdAt' | 'updatedAt'>): Promise<number> {
     if (!this.db) throw new Error('Database not initialized');
 
-    const result = await this.db.runAsync(`
-      INSERT INTO photos (
-        local_identifier, file_path, file_name, file_size, width, height,
-        creation_date, modification_date, hash_value, quality_score,
-        is_duplicate, is_deleted
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      photo.localIdentifier,
-      photo.filePath,
-      photo.fileName,
-      photo.fileSize,
-      photo.width,
-      photo.height,
-      photo.creationDate,
-      photo.modificationDate,
-      photo.hashValue || null,
-      photo.qualityScore || 0.0,
-      photo.isDuplicate ? 1 : 0,
-      photo.isDeleted ? 1 : 0
-    ]);
+    // Check if photo already exists
+    const exists = await this.checkPhotoExists(photo.localIdentifier);
+    if (exists) {
+      console.log('Photo already exists, skipping:', photo.fileName);
+      // Return existing photo ID
+      const existingPhoto = await this.db.getFirstAsync(`
+        SELECT id FROM photos WHERE local_identifier = ?
+      `, [photo.localIdentifier]);
+      return (existingPhoto as any).id;
+    }
 
-    return result.lastInsertRowId;
+    try {
+      const result = await this.db.runAsync(`
+        INSERT INTO photos (
+          local_identifier, file_path, file_name, file_size, width, height,
+          creation_date, modification_date, hash_value, quality_score,
+          is_duplicate, is_deleted
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        photo.localIdentifier,
+        photo.filePath,
+        photo.fileName,
+        photo.fileSize,
+        photo.width,
+        photo.height,
+        photo.creationDate,
+        photo.modificationDate,
+        photo.hashValue || null,
+        photo.qualityScore || 0.0,
+        photo.isDuplicate ? 1 : 0,
+        photo.isDeleted ? 1 : 0
+      ]);
+
+      return result.lastInsertRowId;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
+        console.warn('UNIQUE constraint failed for photo:', photo.fileName, 'This should have been caught by checkPhotoExists');
+        // Fallback: return existing photo ID
+        const existingPhoto = await this.db.getFirstAsync(`
+          SELECT id FROM photos WHERE local_identifier = ?
+        `, [photo.localIdentifier]);
+        return existingPhoto ? (existingPhoto as any).id : 0;
+      }
+      throw error;
+    }
   }
 
   async getPhoto(id: number): Promise<PhotoMetadata | null> {
@@ -97,6 +120,16 @@ export class DatabaseService {
     `, [id]);
 
     return result ? this.mapRowToPhoto(result as any) : null;
+  }
+
+  async checkPhotoExists(localIdentifier: string): Promise<boolean> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const result = await this.db.getFirstAsync(`
+      SELECT id FROM photos WHERE local_identifier = ?
+    `, [localIdentifier]);
+
+    return result !== null;
   }
 
   async getAllPhotos(): Promise<PhotoMetadata[]> {

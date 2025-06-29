@@ -139,11 +139,57 @@ export default function DashboardScreen() {
 
       // Start analysis
       console.log('🧠 Starting duplicate analysis...');
+      console.log('🧠 Photos to analyze:', photos.length);
+      console.log('🧠 First few photos:', photos.slice(0, 3).map(p => ({ filename: p.fileName, uri: p.filePath })));
       setAnalysisMessage('重複を分析中...');
-      const result = await duplicateDetectionService.analyzePhotos((current: number, total: number) => {
-        setAnalysisProgress(0.3 + (current / total) * 0.7); // 70% for analysis
-        setAnalysisMessage(`重複を分析中... ${current}/${total}`);
+      
+      console.log('🧠 Converting photos to Photo format...');
+      const convertedPhotos = photos.map(photo => {
+        console.log('🧠 Converting photo:', photo.fileName);
+        try {
+          // Safe date parsing with fallback
+          const safeDate = (dateStr: string, fallback = new Date()) => {
+            try {
+              const date = new Date(dateStr);
+              return isNaN(date.getTime()) ? fallback : date;
+            } catch {
+              return fallback;
+            }
+          };
+
+          const converted = {
+            id: photo.id,
+            localIdentifier: photo.localIdentifier,
+            uri: photo.filePath,
+            filename: photo.fileName,
+            fileSize: photo.fileSize,
+            width: photo.width,
+            height: photo.height,
+            creationDate: safeDate(photo.creationDate),
+            modificationDate: safeDate(photo.modificationDate),
+            mediaType: 'photo' as const
+          };
+          
+          console.log('🧠 Converted photo:', { 
+            filename: converted.filename, 
+            uri: converted.uri
+          });
+          return converted;
+        } catch (error) {
+          console.error('❌ Failed to convert photo:', photo.fileName, error);
+          throw error;
+        }
       });
+      
+      console.log('🧠 Calling duplicateDetectionService.analyzePhotos...');
+      const result = await duplicateDetectionService.analyzePhotos(
+        convertedPhotos,
+        (progress: number, message: string) => {
+          console.log(`🧠 Analysis progress: ${progress}% - ${message}`);
+          setAnalysisProgress(0.3 + (progress / 100) * 0.7); // 30-100%
+          setAnalysisMessage(message);
+        }
+      );
       
       console.log('🧠 Analysis result:', result);
 
@@ -190,7 +236,10 @@ export default function DashboardScreen() {
       }, 500);
 
     } catch (error) {
-      console.error('Analysis failed:', error);
+      console.error('❌ Analysis failed at top level:', error);
+      console.error('❌ Error type:', typeof error);
+      console.error('❌ Error message:', error instanceof Error ? error.message : String(error));
+      console.error('❌ Error stack:', error instanceof Error ? error.stack : 'No stack');
       
       // Update session with error if it was created
       if (sessionUuid) {

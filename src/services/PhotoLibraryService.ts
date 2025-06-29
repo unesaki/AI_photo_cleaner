@@ -120,7 +120,7 @@ export class PhotoLibraryService {
     try {
       if (assetInfo.localUri) {
         const fileInfo = await FileSystem.getInfoAsync(assetInfo.localUri);
-        fileSize = fileInfo.size || 0;
+        fileSize = (fileInfo as any).size || 0;
       }
     } catch (error) {
       console.warn(`Could not get file size for ${asset.filename}:`, error);

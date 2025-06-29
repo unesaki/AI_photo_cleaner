@@ -4,6 +4,18 @@ import { Photo, PhotoMetadata } from '../types';
 export class PhotoService {
   private hasPermission = false;
 
+  private safeToISOString(date: Date | null | undefined): string | null {
+    if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
+      return null;
+    }
+    try {
+      return date.toISOString();
+    } catch (error) {
+      console.warn('Failed to convert date to ISO string:', error);
+      return null;
+    }
+  }
+
   async requestPermissions(): Promise<boolean> {
     try {
       const { status } = await MediaLibrary.requestPermissionsAsync();
@@ -103,6 +115,9 @@ export class PhotoService {
   }
 
   convertToPhotoMetadata(photo: Photo): Omit<PhotoMetadata, 'id' | 'createdAt' | 'updatedAt'> {
+    const safeCreationDate = this.safeToISOString(photo.creationDate) || new Date().toISOString();
+    const safeModificationDate = this.safeToISOString(photo.modificationDate) || new Date().toISOString();
+
     return {
       localIdentifier: photo.localIdentifier,
       filePath: photo.uri,
@@ -110,8 +125,8 @@ export class PhotoService {
       fileSize: photo.fileSize,
       width: photo.width,
       height: photo.height,
-      creationDate: photo.creationDate.toISOString(),
-      modificationDate: photo.modificationDate.toISOString(),
+      creationDate: safeCreationDate,
+      modificationDate: safeModificationDate,
       isDuplicate: false,
       isDeleted: false
     };
