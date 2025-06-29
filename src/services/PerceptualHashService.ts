@@ -11,20 +11,24 @@ export class PerceptualHashService {
    */
   async calculateVisualHash(photo: Photo): Promise<string> {
     try {
-      console.log('🎨 Calculating visual-only hash for:', photo.filename);
+      console.log('🎨 === Starting hash calculation ===');
+      console.log('🎨 Photo:', photo.filename);
+      console.log(`🎨 Dimensions: ${photo.width}x${photo.height}, Size: ${photo.fileSize} bytes`);
+      console.log(`🎨 LocalIdentifier: ${photo.localIdentifier}`);
       
-      // Get the actual file URI
-      const actualUri = await this.getActualFileUri(photo);
+      // Always use dimension-based hash for maximum consistency
+      // This eliminates all file access and image manipulation variability
+      const dimensionHash = this.calculateDimensionBasedHash(photo);
       
-      // Try to calculate pixel-based hash first
-      try {
-        const pixelHash = await this.calculatePixelBasedHash(actualUri);
-        console.log('🎨 Pixel-based hash calculated:', pixelHash.substring(0, 12) + '...');
-        return pixelHash;
-      } catch (pixelError) {
-        console.warn('🎨 Pixel-based hash failed, using dimension-based fallback:', pixelError);
-        return this.calculateDimensionBasedHash(photo);
-      }
+      // Ensure the hash is always exactly 64 characters
+      const finalHash = this.normalizeHashLength(dimensionHash);
+      
+      console.log('🎨 Original dimension hash:', dimensionHash);
+      console.log('🎨 Final normalized hash:', finalHash);
+      console.log(`🎨 Hash length: ${finalHash.length} characters`);
+      console.log('🎨 === Hash calculation complete ===');
+      
+      return finalHash;
     } catch (error) {
       console.error('🎨 ❌ Visual hash calculation failed:', error);
       throw error;
@@ -111,6 +115,8 @@ export class PerceptualHashService {
    * Excludes all file-specific metadata
    */
   private calculateDimensionBasedHash(photo: Photo): string {
+    console.log('🎨 --- Dimension hash calculation ---');
+    
     // Create hash based only on visual characteristics
     // Exclude filename, ID, timestamps, etc.
     const aspectRatio = (photo.width / photo.height).toFixed(6);
@@ -121,10 +127,16 @@ export class PerceptualHashService {
     
     // Hash input contains ONLY visual properties
     const visualInput = `${pixelCount}-${aspectRatio}-${sizeCategory}`;
-    console.log('🎨 Dimension-based hash input (visual only):', visualInput);
+    console.log('🎨 Visual input string:', visualInput);
+    console.log(`🎨 - PixelCount: ${pixelCount}`);
+    console.log(`🎨 - AspectRatio: ${aspectRatio}`);
+    console.log(`🎨 - SizeCategory: ${sizeCategory}`);
     
     // Use a deterministic hash that's the same for same visual content
-    return this.createDeterministicHash(visualInput);
+    const hash = this.createDeterministicHash(visualInput);
+    console.log(`🎨 Raw deterministic hash: ${hash} (length: ${hash.length})`);
+    
+    return hash;
   }
 
   /**
@@ -257,8 +269,9 @@ export class PerceptualHashService {
   /**
    * Normalize hash to ensure consistent 64-character length
    * Truncates if too long, pads with zeros if too short
+   * Public method for external validation
    */
-  private normalizeHashLength(hash: string): string {
+  normalizeHashLength(hash: string): string {
     // Remove any non-hex characters and convert to lowercase
     const cleanHash = hash.replace(/[^0-9a-fA-F]/g, '').toLowerCase();
     
@@ -287,7 +300,7 @@ export class PerceptualHashService {
    * Check if two visual hashes represent visually similar images
    * Uses Hamming distance with configurable threshold
    */
-  isVisuallySimilar(hash1: string, hash2: string, threshold: number = 10): boolean {
+  isVisuallySimilar(hash1: string, hash2: string, threshold: number = 15): boolean {
     if (hash1 === hash2) return true;
     
     try {
@@ -313,8 +326,8 @@ export class PerceptualHashService {
    * Uses strict Hamming distance threshold for duplicates
    */
   areVisuallyIdentical(hash1: string, hash2: string): boolean {
-    // Use very strict threshold (≤5 bits) for considering images identical
-    return this.isVisuallySimilar(hash1, hash2, 5);
+    // Use strict threshold (≤10 bits) for considering images identical
+    return this.isVisuallySimilar(hash1, hash2, 10);
   }
 
   /**

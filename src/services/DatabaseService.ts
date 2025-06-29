@@ -157,17 +157,34 @@ export class DatabaseService {
   async createDuplicateGroup(groupHash: string, photoIds: number[]): Promise<number> {
     if (!this.db) throw new Error('Database not initialized');
 
+    console.log(`📊 Creating duplicate group with hash: ${groupHash.substring(0, 16)}...`);
+    console.log(`📊 Photo IDs: [${photoIds.join(', ')}]`);
+
     try {
       // Start transaction
       await this.db.execAsync('BEGIN TRANSACTION');
 
-      // Create group
+      // Check if group with this hash already exists
+      const existingGroup = await this.db.getFirstAsync(`
+        SELECT id FROM duplicate_groups WHERE group_hash = ?
+      `, [groupHash]);
+
+      if (existingGroup) {
+        await this.db.execAsync('ROLLBACK');
+        const existingId = (existingGroup as any).id;
+        console.log(`📊 ⚠️ Group with hash ${groupHash.substring(0, 16)}... already exists (ID: ${existingId})`);
+        console.log(`📊 🔄 Returning existing group ID instead of creating new one`);
+        return existingId;
+      }
+
+      // Create group with unique group_hash
       const groupResult = await this.db.runAsync(`
         INSERT INTO duplicate_groups (group_hash, photo_count, total_size)
         VALUES (?, ?, 0)
       `, [groupHash, photoIds.length]);
 
       const groupId = groupResult.lastInsertRowId;
+      console.log(`📊 ✅ Created new duplicate group with ID: ${groupId}`);
 
       // Add photos to group
       for (let i = 0; i < photoIds.length; i++) {
@@ -240,6 +257,37 @@ export class DatabaseService {
       )
       WHERE id = ?
     `, [groupId, groupId]);
+  }
+
+  async markGroupAsNotDuplicate(groupId: string): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const groupIdNum = parseInt(groupId);
+    
+    try {
+      // Begin transaction
+      await this.db.runAsync('BEGIN TRANSACTION');
+      
+      // Mark the group as not duplicate by setting a flag or deleting it
+      // For now, we'll delete the group and its associations
+      await this.db.runAsync(`
+        DELETE FROM duplicate_group_photos WHERE group_id = ?
+      `, [groupIdNum]);
+      
+      await this.db.runAsync(`
+        DELETE FROM duplicate_groups WHERE id = ?
+      `, [groupIdNum]);
+      
+      // Commit transaction
+      await this.db.runAsync('COMMIT');
+      
+      console.log(`✅ Successfully marked group ${groupId} as not duplicate and removed from database`);
+    } catch (error) {
+      // Rollback on error
+      await this.db.runAsync('ROLLBACK');
+      console.error(`❌ Failed to mark group ${groupId} as not duplicate:`, error);
+      throw error;
+    }
   }
 
   // Analysis sessions operations

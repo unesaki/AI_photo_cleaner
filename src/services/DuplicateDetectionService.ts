@@ -5,18 +5,47 @@ import { perceptualHashService } from './PerceptualHashService';
 
 export class DuplicateDetectionService {
   
+  // メタデータキャッシュ - 処理開始時に一度だけ全写真データを取得
+  private photoMetadataCache: Map<string, any> = new Map();
+  
   /**
-   * Get the stored hash for a photo from database
+   * Initialize metadata cache to avoid repeated database queries
    */
-  private async getPhotoHash(photo: Photo): Promise<string | null> {
+  private async initializeMetadataCache(): Promise<void> {
     try {
+      console.log('🔬 Initializing photo metadata cache...');
       const allPhotos = await databaseService.getAllPhotos();
-      const metadata = allPhotos.find(p => p.localIdentifier === photo.localIdentifier);
-      return metadata?.hashValue || null;
+      this.photoMetadataCache.clear();
+      
+      for (const photo of allPhotos) {
+        this.photoMetadataCache.set(photo.localIdentifier, photo);
+      }
+      
+      console.log(`🔬 Metadata cache initialized with ${this.photoMetadataCache.size} photos`);
     } catch (error) {
-      console.error('🔬 Failed to get photo hash:', error);
+      console.error('🔬 ❌ Failed to initialize metadata cache:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Get the stored hash for a photo from cache (no database query)
+   */
+  private getPhotoHashFromCache(photo: Photo): string | null {
+    const metadata = this.photoMetadataCache.get(photo.localIdentifier);
+    if (!metadata) {
+      console.warn(`🔬 ⚠️ Photo metadata not found in cache for: ${photo.filename} (${photo.localIdentifier})`);
+      console.warn('🔬 ⚠️ This photo will be excluded from duplicate comparison');
       return null;
     }
+    
+    if (!metadata.hashValue) {
+      console.warn(`🔬 ⚠️ Hash value missing for photo: ${photo.filename} (${photo.localIdentifier})`);
+      console.warn('🔬 ⚠️ This photo will be excluded from duplicate comparison');
+      return null;
+    }
+    
+    return metadata.hashValue;
   }
   
   async analyzePhotos(
@@ -48,23 +77,33 @@ export class DuplicateDetectionService {
           
           // Calculate visual-only hash for duplicate detection  
           console.log('🔬 Calculating visual-only hash for:', photo.filename);
+          console.log(`🔬 Photo details: ${photo.width}x${photo.height}, ${photo.fileSize} bytes, URI: ${photo.uri.substring(0, 50)}...`);
+          
           const hash = await perceptualHashService.calculateVisualHash(photo);
           console.log('🔬 Visual hash calculated:', hash.substring(0, 8) + '...');
+          console.log(`🔬 Full hash: ${hash}`);
           
-          // Save photo metadata to database
+          // Ensure hash is always exactly 64 characters before any processing
+          const finalHash = perceptualHashService.normalizeHashLength(hash);
+          console.log(`🔬 === HASH PROCESSING ===`);
+          console.log(`🔬 Original hash: ${hash}`);
+          console.log(`🔬 Final hash: ${finalHash}`);
+          console.log(`🔬 Hash length: ${finalHash.length} characters`);
+          console.log(`🔬 ========================`);
+          
+          // Save photo metadata to database with normalized hash
           console.log('🔬 Converting to photo metadata...');
           const photoMetadata = photoService.convertToPhotoMetadata(photo);
-          photoMetadata.hashValue = hash;
-          console.log('🔬 Photo metadata created, saving to database...');
+          photoMetadata.hashValue = finalHash;
           
+          console.log(`🔬 Saving photo with hash: ${finalHash.substring(0, 16)}...`);
           await databaseService.savePhoto(photoMetadata);
-          console.log('🔬 Photo saved to database');
+          console.log('🔬 ✅ Photo saved to database successfully');
           
-          // Group by hash for duplicate detection
-          if (!hashMap.has(hash)) {
-            hashMap.set(hash, []);
+          if (!hashMap.has(finalHash)) {
+            hashMap.set(finalHash, []);
           }
-          hashMap.get(hash)!.push(photo);
+          hashMap.get(finalHash)!.push(photo);
           photoMap.set(photo.id, photo);
           
           analyzedCount++;
@@ -81,6 +120,10 @@ export class DuplicateDetectionService {
       
       onProgress?.(90, '重複グループを作成中...');
       
+      // Initialize metadata cache before duplicate detection
+      console.log('🔬 Initializing metadata cache for performance optimization...');
+      await this.initializeMetadataCache();
+      
       // Enhanced duplicate detection using Hamming distance for visual similarity
       console.log('🔬 Starting visual duplicate detection with Hamming distance...');
       const duplicateGroups: DuplicateGroup[] = [];
@@ -92,29 +135,37 @@ export class DuplicateDetectionService {
       const processedPhotos = new Set<string>();
       const confirmedDuplicates: Photo[][] = [];
       
-      for (let i = 0; i < allPhotos.length; i++) {
-        if (processedPhotos.has(allPhotos[i].id)) continue;
+      // Filter photos that have valid hashes in cache
+      const photosWithHashes = allPhotos.filter(photo => {
+        const hash = this.getPhotoHashFromCache(photo);
+        return hash !== null;
+      });
+      
+      console.log(`🔬 Processing ${photosWithHashes.length}/${allPhotos.length} photos with valid hashes`);
+      
+      for (let i = 0; i < photosWithHashes.length; i++) {
+        if (processedPhotos.has(photosWithHashes[i].id)) continue;
         
-        const currentPhoto = allPhotos[i];
-        const currentHash = await this.getPhotoHash(currentPhoto);
-        if (!currentHash) continue;
+        const currentPhoto = photosWithHashes[i];
+        const currentHash = this.getPhotoHashFromCache(currentPhoto);
+        if (!currentHash) continue; // Should not happen due to filtering above
         
         const similarGroup: Photo[] = [currentPhoto];
         processedPhotos.add(currentPhoto.id);
         
         // Find all photos similar to current photo using Hamming distance
-        for (let j = i + 1; j < allPhotos.length; j++) {
-          if (processedPhotos.has(allPhotos[j].id)) continue;
+        for (let j = i + 1; j < photosWithHashes.length; j++) {
+          if (processedPhotos.has(photosWithHashes[j].id)) continue;
           
-          const comparePhoto = allPhotos[j];
-          const compareHash = await this.getPhotoHash(comparePhoto);
-          if (!compareHash) continue;
+          const comparePhoto = photosWithHashes[j];
+          const compareHash = this.getPhotoHashFromCache(comparePhoto);
+          if (!compareHash) continue; // Should not happen due to filtering above
           
-          // Use perceptual hash service to check visual similarity
-          if (perceptualHashService.isVisuallySimilar(currentHash, compareHash, 10)) {
+          // Use perceptual hash service to check visual similarity with relaxed threshold
+          if (perceptualHashService.isVisuallySimilar(currentHash, compareHash, 15)) {
             similarGroup.push(comparePhoto);
             processedPhotos.add(comparePhoto.id);
-            console.log(`🔬 Found visually similar photo: ${comparePhoto.filename} (Hamming distance ≤10)`);
+            console.log(`🔬 Found visually similar photo: ${comparePhoto.filename} (Hamming distance ≤15)`);
           }
         }
         
@@ -128,13 +179,14 @@ export class DuplicateDetectionService {
       // Create duplicate groups for confirmed duplicates
       for (const duplicateSet of confirmedDuplicates) {
         try {
-          // Get photo metadata from database
+          // Get photo metadata from cache (no database queries)
           const photoMetadataList = [];
           for (const photo of duplicateSet) {
-            const allPhotos = await databaseService.getAllPhotos();
-            const metadata = allPhotos.find(p => p.localIdentifier === photo.localIdentifier);
+            const metadata = this.photoMetadataCache.get(photo.localIdentifier);
             if (metadata) {
               photoMetadataList.push(metadata);
+            } else {
+              console.warn(`🔬 ⚠️ Metadata not found in cache for duplicate group photo: ${photo.filename}`);
             }
           }
           

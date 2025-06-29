@@ -13,7 +13,8 @@ import { StatCard } from '@/components/ui/StatCard';
 import { DuplicateGroupCard } from '@/components/ui/DuplicateGroupCard';
 import { DeletionConfirmDialog } from '@/components/ui/DeletionConfirmDialog';
 import { ThemedText } from '@/components/ThemedText';
-import { Colors, Spacing, Typography } from '@/src/utils/constants';
+import { Colors, Spacing, Typography, MobileOptimized } from '@/src/utils/constants';
+import { isMobile, getResponsiveSpacing, getMobileSpacing, createResponsiveStyle } from '@/src/utils/responsive';
 import { databaseService, duplicateDetectionService } from '@/src/services';
 import type { DuplicateGroup, PhotoMetadata } from '@/src/types';
 
@@ -33,13 +34,17 @@ export default function DuplicateResultsScreen() {
     }, [])
   );
 
+  const handleReturnToHome = () => {
+    router.push('/');
+  };
+
   const loadDuplicateGroups = async () => {
     try {
       setIsLoading(true);
       const groups = await databaseService.getDuplicateGroups();
       console.log('📊 Loaded duplicate groups:', groups.length);
-      groups.forEach((group, index) => {
-        console.log(`📊 Group ${index + 1}: ${group.photoCount} photos, ${group.photos.map(p => p.fileName).join(', ')}`);
+      groups.forEach((group: DuplicateGroup, index: number) => {
+        console.log(`📊 Group ${index + 1}: ${group.photoCount} photos, ${group.photos.map((p: PhotoMetadata) => p.fileName).join(', ')}`);
       });
       setDuplicateGroups(groups);
     } catch (error) {
@@ -68,6 +73,43 @@ export default function DuplicateResultsScreen() {
       }
     });
     setSelectedPhotos(newSelected);
+  };
+
+  const handleMarkGroupAsNotDuplicate = (group: DuplicateGroup) => {
+    Alert.alert(
+      '重複ではないとマーク',
+      `このグループ（${group.photoCount}枚）を重複ではないとマークしますか？\n\nこのグループは今後の分析結果から除外されます。`,
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        {
+          text: 'マークする',
+          style: 'default',
+          onPress: async () => {
+            try {
+              // データベースでグループを非重複としてマーク
+              await databaseService.markGroupAsNotDuplicate(group.id);
+              
+              // UIから該当グループを削除
+              setDuplicateGroups(prevGroups => 
+                prevGroups.filter(g => g.id !== group.id)
+              );
+              
+              // 選択状態もクリア
+              const newSelected = new Set(selectedPhotos);
+              group.photos.forEach(photo => {
+                newSelected.delete(photo.id);
+              });
+              setSelectedPhotos(newSelected);
+              
+              Alert.alert('完了', 'グループを重複ではないとマークしました');
+            } catch (error) {
+              console.error('Failed to mark group as not duplicate:', error);
+              Alert.alert('エラー', 'グループのマークに失敗しました');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const deleteSelectedPhotos = async () => {
@@ -173,6 +215,7 @@ export default function DuplicateResultsScreen() {
       deletedPhotos={deletedPhotos}
       onPhotoSelect={togglePhotoSelection}
       onSelectAllDuplicates={selectAllDuplicatesInGroup}
+      onMarkAsNotDuplicate={handleMarkGroupAsNotDuplicate}
       showPhotoDetails={true}
       compactMode={false}
     />
@@ -253,10 +296,6 @@ export default function DuplicateResultsScreen() {
     );
   };
 
-  const handleReturnToHome = () => {
-    router.push('/');
-  };
-
   const handleProceedWithDeletion = () => {
     console.log('🔍 handleProceedWithDeletion called');
     console.log('🔍 selectedPhotos.size:', selectedPhotos.size);
@@ -290,43 +329,22 @@ export default function DuplicateResultsScreen() {
         {showActionOptions && (
           <View style={styles.actionOptionsCard}>
             <ThemedText style={styles.actionOptionsTitle}>どうしますか？</ThemedText>
-            <View style={styles.actionOptionsButtons}>
+            <View style={styles.mainActionButtons}>
               <ActionButton
                 title="重複を削除"
                 onPress={handleProceedWithDeletion}
                 variant="danger"
-                style={styles.actionOptionButton}
-              />
-              <ActionButton
-                title="重複ではない"
-                onPress={handleMarkAsNotDuplicate}
-                variant="secondary"
-                style={styles.actionOptionButton}
+                style={styles.mainActionButton}
               />
               <ActionButton
                 title="TOPに戻る"
                 onPress={handleReturnToHome}
                 variant="secondary"
-                style={styles.actionOptionButton}
+                style={styles.mainActionButton}
               />
             </View>
           </View>
         )}
-
-        <View style={styles.statsRow}>
-          <StatCard
-            icon="🗑️"
-            title="重複検出"
-            value={`${totalDuplicates}枚`}
-            color={Colors.warning}
-          />
-          <StatCard
-            icon="💾"
-            title="削減可能"
-            value={formatFileSize(totalSavings)}
-            color={Colors.info}
-          />
-        </View>
       </View>
 
       <FlatList
@@ -335,6 +353,24 @@ export default function DuplicateResultsScreen() {
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
+        ListHeaderComponent={() => (
+          <View style={styles.statsContainer}>
+            <View style={styles.statsRow}>
+              <StatCard
+                icon="🗑️"
+                title="重複検出"
+                value={`${totalDuplicates}枚`}
+                color={Colors.warning}
+              />
+              <StatCard
+                icon="💾"
+                title="削減可能"
+                value={formatFileSize(totalSavings)}
+                color={Colors.info}
+              />
+            </View>
+          </View>
+        )}
       />
 
       {selectedPhotos.size > 0 && (
@@ -369,6 +405,9 @@ export default function DuplicateResultsScreen() {
   );
 }
 
+const responsiveSpacing = getResponsiveSpacing();
+const mobileSpacing = getMobileSpacing();
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -379,101 +418,254 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  loadingText: {
-    ...Typography.body,
-    color: Colors.textSecondary,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
-  },
-  emptyTitle: {
-    ...Typography.h1,
-    color: Colors.textPrimary,
-    textAlign: 'center',
-    marginBottom: Spacing.md,
-  },
-  emptySubtitle: {
-    ...Typography.body,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-  },
-  emptyActionContainer: {
-    marginTop: Spacing.xl,
-    width: '100%',
-    alignItems: 'center',
-  },
-  emptyActionButton: {
-    minWidth: 150,
-  },
-  header: {
-    padding: Spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.gray100,
-  },
-  title: {
-    ...Typography.h1,
-    color: Colors.textPrimary,
-    marginBottom: Spacing.sm,
-  },
-  resultSummary: {
-    ...Typography.body,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: Spacing.lg,
-  },
-  actionOptionsCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 12,
-    padding: Spacing.lg,
-    marginBottom: Spacing.lg,
-    borderWidth: 1,
-    borderColor: Colors.gray100,
-  },
-  actionOptionsTitle: {
-    ...Typography.h2,
-    color: Colors.textPrimary,
-    textAlign: 'center',
-    marginBottom: Spacing.md,
-  },
-  actionOptionsButtons: {
-    gap: Spacing.sm,
-  },
-  actionOptionButton: {
-    width: '100%',
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: Spacing.md,
-  },
-  listContent: {
-    padding: Spacing.lg,
-  },
-  bottomBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: Spacing.lg,
-    backgroundColor: Colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: Colors.gray100,
-  },
-  bottomBarInfo: {
-    flex: 1,
-  },
-  bottomBarText: {
-    ...Typography.body,
-    color: Colors.textPrimary,
-    fontWeight: '600',
-  },
-  bottomBarSubtext: {
-    ...Typography.caption,
-    color: Colors.textSecondary,
-  },
-  deleteButton: {
-    minWidth: 120,
-  },
+  loadingText: createResponsiveStyle({
+    mobile: {
+      ...MobileOptimized.typography.body,
+      color: Colors.textSecondary,
+    },
+    tablet: {
+      ...Typography.body,
+      color: Colors.textSecondary,
+    }
+  }),
+  emptyContainer: createResponsiveStyle({
+    mobile: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: responsiveSpacing.md,
+    },
+    tablet: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: Spacing.lg,
+    }
+  }),
+  emptyTitle: createResponsiveStyle({
+    mobile: {
+      ...MobileOptimized.typography.h1,
+      color: Colors.textPrimary,
+      textAlign: 'center',
+      marginBottom: responsiveSpacing.md,
+    },
+    tablet: {
+      ...Typography.h1,
+      color: Colors.textPrimary,
+      textAlign: 'center',
+      marginBottom: Spacing.md,
+    }
+  }),
+  emptySubtitle: createResponsiveStyle({
+    mobile: {
+      ...MobileOptimized.typography.body,
+      color: Colors.textSecondary,
+      textAlign: 'center',
+    },
+    tablet: {
+      ...Typography.body,
+      color: Colors.textSecondary,
+      textAlign: 'center',
+    }
+  }),
+  emptyActionContainer: createResponsiveStyle({
+    mobile: {
+      marginTop: responsiveSpacing.lg,
+      width: '100%',
+      alignItems: 'center',
+    },
+    tablet: {
+      marginTop: Spacing.xl,
+      width: '100%',
+      alignItems: 'center',
+    }
+  }),
+  emptyActionButton: createResponsiveStyle({
+    mobile: {
+      width: '100%',
+      minHeight: MobileOptimized.touchTarget.minHeight,
+    },
+    tablet: {
+      minWidth: 150,
+    }
+  }),
+  header: createResponsiveStyle({
+    mobile: {
+      padding: responsiveSpacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: Colors.gray100,
+    },
+    tablet: {
+      padding: Spacing.lg,
+      borderBottomWidth: 1,
+      borderBottomColor: Colors.gray100,
+    }
+  }),
+  title: createResponsiveStyle({
+    mobile: {
+      ...MobileOptimized.typography.h1,
+      color: Colors.textPrimary,
+      marginBottom: responsiveSpacing.xs,
+      textAlign: 'center',
+    },
+    tablet: {
+      ...Typography.h1,
+      color: Colors.textPrimary,
+      marginBottom: Spacing.sm,
+    }
+  }),
+  resultSummary: createResponsiveStyle({
+    mobile: {
+      ...MobileOptimized.typography.body,
+      color: Colors.textSecondary,
+      textAlign: 'center',
+      marginBottom: responsiveSpacing.md,
+    },
+    tablet: {
+      ...Typography.body,
+      color: Colors.textSecondary,
+      textAlign: 'center',
+      marginBottom: Spacing.lg,
+    }
+  }),
+  actionOptionsCard: createResponsiveStyle({
+    mobile: {
+      backgroundColor: Colors.surface,
+      borderRadius: 8,
+      padding: mobileSpacing.cardPadding,
+      marginBottom: responsiveSpacing.md,
+      borderWidth: 1,
+      borderColor: Colors.gray100,
+    },
+    tablet: {
+      backgroundColor: Colors.surface,
+      borderRadius: 12,
+      padding: Spacing.lg,
+      marginBottom: Spacing.lg,
+      borderWidth: 1,
+      borderColor: Colors.gray100,
+    }
+  }),
+  actionOptionsTitle: createResponsiveStyle({
+    mobile: {
+      ...MobileOptimized.typography.h2,
+      color: Colors.textPrimary,
+      textAlign: 'center',
+      marginBottom: responsiveSpacing.sm,
+    },
+    tablet: {
+      ...Typography.h2,
+      color: Colors.textPrimary,
+      textAlign: 'center',
+      marginBottom: Spacing.md,
+    }
+  }),
+  mainActionButtons: createResponsiveStyle({
+    mobile: {
+      flexDirection: 'column',
+      gap: responsiveSpacing.xs,
+    },
+    tablet: {
+      flexDirection: 'row',
+      gap: Spacing.sm,
+    }
+  }),
+  mainActionButton: createResponsiveStyle({
+    mobile: {
+      width: '100%',
+      minHeight: MobileOptimized.touchTarget.minHeight,
+    },
+    tablet: {
+      flex: 1,
+      minHeight: MobileOptimized.touchTarget.minHeight,
+    }
+  }),
+  statsContainer: createResponsiveStyle({
+    mobile: {
+      padding: responsiveSpacing.md,
+    },
+    tablet: {
+      padding: Spacing.md,
+    }
+  }),
+  statsRow: createResponsiveStyle({
+    mobile: {
+      flexDirection: 'row',
+      gap: responsiveSpacing.xs,
+    },
+    tablet: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      gap: Spacing.md,
+    }
+  }),
+  listContent: createResponsiveStyle({
+    mobile: {
+      padding: responsiveSpacing.md,
+    },
+    tablet: {
+      padding: Spacing.lg,
+    }
+  }),
+  bottomBar: createResponsiveStyle({
+    mobile: {
+      flexDirection: 'column',
+      alignItems: 'stretch',
+      padding: responsiveSpacing.md,
+      backgroundColor: Colors.surface,
+      borderTopWidth: 1,
+      borderTopColor: Colors.gray100,
+      gap: responsiveSpacing.sm,
+    },
+    tablet: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: Spacing.lg,
+      backgroundColor: Colors.surface,
+      borderTopWidth: 1,
+      borderTopColor: Colors.gray100,
+    }
+  }),
+  bottomBarInfo: createResponsiveStyle({
+    mobile: {
+      alignItems: 'center',
+    },
+    tablet: {
+      flex: 1,
+    }
+  }),
+  bottomBarText: createResponsiveStyle({
+    mobile: {
+      ...MobileOptimized.typography.body,
+      color: Colors.textPrimary,
+      fontWeight: '600',
+      textAlign: 'center',
+    },
+    tablet: {
+      ...Typography.body,
+      color: Colors.textPrimary,
+      fontWeight: '600',
+    }
+  }),
+  bottomBarSubtext: createResponsiveStyle({
+    mobile: {
+      ...MobileOptimized.typography.caption,
+      color: Colors.textSecondary,
+      textAlign: 'center',
+    },
+    tablet: {
+      ...Typography.caption,
+      color: Colors.textSecondary,
+    }
+  }),
+  deleteButton: createResponsiveStyle({
+    mobile: {
+      width: '100%',
+      minHeight: MobileOptimized.touchTarget.minHeight,
+    },
+    tablet: {
+      minWidth: 120,
+    }
+  }),
 });

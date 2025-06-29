@@ -82,3 +82,11 @@ export interface MigrationRecord {
   name: string;
   applied_at: string;
 }
+
+export interface MigrationStatus {
+  currentVersion: number;
+  latestVersion: number;
+  pendingMigrations: Migration[];
+  appliedMigrations: MigrationRecord[];
+  needsUpdate: boolean;
+}

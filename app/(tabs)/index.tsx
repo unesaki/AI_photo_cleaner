@@ -6,9 +6,10 @@ import { ActionButton } from '@/components/ui/ActionButton';
 import { StatCard } from '@/components/ui/StatCard';
 import { ProgressCard } from '@/components/ui/ProgressCard';
 import { ThemedText } from '@/components/ThemedText';
-import { Colors, Spacing, Typography } from '@/src/utils/constants';
+import { Colors, Spacing, Typography, MobileOptimized } from '@/src/utils/constants';
+import { isMobile, getResponsiveSpacing, getMobileSpacing, createResponsiveStyle } from '@/src/utils/responsive';
 import { databaseService, duplicateDetectionService, photoLibraryService } from '@/src/services';
-import type { AnalysisSession, AnalysisResult } from '@/src/types';
+import type { AnalysisSession, AnalysisResult, PhotoMetadata } from '@/src/types';
 
 export default function DashboardScreen() {
   const [photoCount, setPhotoCount] = useState(0);
@@ -140,11 +141,11 @@ export default function DashboardScreen() {
       // Start analysis
       console.log('🧠 Starting duplicate analysis...');
       console.log('🧠 Photos to analyze:', photos.length);
-      console.log('🧠 First few photos:', photos.slice(0, 3).map(p => ({ filename: p.fileName, uri: p.filePath })));
+      console.log('🧠 First few photos:', photos.slice(0, 3).map((p: PhotoMetadata) => ({ filename: p.fileName, uri: p.filePath })));
       setAnalysisMessage('重複を分析中...');
       
       console.log('🧠 Converting photos to Photo format...');
-      const convertedPhotos = photos.map(photo => {
+      const convertedPhotos = photos.map((photo: PhotoMetadata) => {
         console.log('🧠 Converting photo:', photo.fileName);
         try {
           // Safe date parsing with fallback
@@ -347,18 +348,18 @@ export default function DashboardScreen() {
               <StatCard
                 icon="🗑️"
                 title="重複検出"
-                value={lastSession.duplicatesFound + '枚'}
+                value={lastSession?.duplicatesFound + '枚'}
                 color={Colors.success}
               />
               <StatCard
                 icon="💾"
                 title="容量削減"
-                value={formatFileSize(lastSession.potentialSpaceSaved || 0)}
+                value={formatFileSize(lastSession?.potentialSpaceSaved || 0)}
                 color={Colors.info}
               />
             </View>
             <ThemedText style={styles.lastAnalysisDate}>
-              最終分析: {formatDate(lastSession.endTime ? new Date(lastSession.endTime).getTime() : Date.now())}
+              最終分析: {formatDate(lastSession?.endTime ? new Date(lastSession.endTime).getTime() : Date.now())}
             </ThemedText>
             
             <View style={styles.actionRow}>
@@ -387,6 +388,9 @@ export default function DashboardScreen() {
   );
 }
 
+const responsiveSpacing = getResponsiveSpacing();
+const mobileSpacing = getMobileSpacing();
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -395,66 +399,155 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
-  header: {
-    padding: Spacing.lg,
-    alignItems: 'center',
-  },
-  title: {
-    ...Typography.h1,
-    color: Colors.textPrimary,
-    marginBottom: Spacing.xs,
-  },
-  subtitle: {
-    ...Typography.body,
-    color: Colors.textSecondary,
-  },
-  section: {
-    paddingHorizontal: Spacing.lg,
-    marginBottom: Spacing.lg,
-  },
-  sectionTitle: {
-    ...Typography.h2,
-    color: Colors.textPrimary,
-    marginBottom: Spacing.md,
-  },
-  actionCard: {
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: Spacing.lg,
-    alignItems: 'center',
-  },
-  actionDescription: {
-    ...Typography.body,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: Spacing.lg,
-  },
+  header: createResponsiveStyle({
+    mobile: {
+      padding: responsiveSpacing.lg,
+      alignItems: 'center',
+    },
+    tablet: {
+      padding: Spacing.xl,
+      alignItems: 'center',
+    }
+  }),
+  title: createResponsiveStyle({
+    mobile: {
+      ...MobileOptimized.typography.h1,
+      color: Colors.textPrimary,
+      marginBottom: responsiveSpacing.xs,
+      textAlign: 'center',
+    },
+    tablet: {
+      ...Typography.h1,
+      color: Colors.textPrimary,
+      marginBottom: Spacing.xs,
+    }
+  }),
+  subtitle: createResponsiveStyle({
+    mobile: {
+      ...MobileOptimized.typography.body,
+      color: Colors.textSecondary,
+      textAlign: 'center',
+    },
+    tablet: {
+      ...Typography.body,
+      color: Colors.textSecondary,
+    }
+  }),
+  section: createResponsiveStyle({
+    mobile: {
+      paddingHorizontal: responsiveSpacing.md,
+      marginBottom: mobileSpacing.sectionSpacing,
+    },
+    tablet: {
+      paddingHorizontal: Spacing.lg,
+      marginBottom: Spacing.lg,
+    }
+  }),
+  sectionTitle: createResponsiveStyle({
+    mobile: {
+      ...MobileOptimized.typography.h2,
+      color: Colors.textPrimary,
+      marginBottom: responsiveSpacing.sm,
+    },
+    tablet: {
+      ...Typography.h2,
+      color: Colors.textPrimary,
+      marginBottom: Spacing.md,
+    }
+  }),
+  actionCard: createResponsiveStyle({
+    mobile: {
+      backgroundColor: Colors.card,
+      borderRadius: 8,
+      padding: mobileSpacing.cardPadding,
+      alignItems: 'center',
+    },
+    tablet: {
+      backgroundColor: Colors.card,
+      borderRadius: 12,
+      padding: Spacing.lg,
+      alignItems: 'center',
+    }
+  }),
+  actionDescription: createResponsiveStyle({
+    mobile: {
+      ...MobileOptimized.typography.body,
+      color: Colors.textSecondary,
+      textAlign: 'center',
+      marginBottom: mobileSpacing.buttonSpacing,
+    },
+    tablet: {
+      ...Typography.body,
+      color: Colors.textSecondary,
+      textAlign: 'center',
+      marginBottom: Spacing.lg,
+    }
+  }),
   mainButton: {
     width: '100%',
+    minHeight: MobileOptimized.touchTarget.minHeight,
   },
-  resultsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: Spacing.md,
-  },
-  lastAnalysisDate: {
-    ...Typography.caption,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    marginTop: Spacing.sm,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    marginTop: Spacing.lg,
-    gap: Spacing.md,
-  },
-  detailButton: {
-    flex: 1,
-  },
-  reAnalyzeButton: {
-    flex: 1,
-  },
-  bottomSpacer: {
-    height: Spacing.xl,
-  },
+  resultsGrid: createResponsiveStyle({
+    mobile: {
+      flexDirection: 'column',
+      gap: responsiveSpacing.sm,
+    },
+    tablet: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      gap: Spacing.md,
+    }
+  }),
+  lastAnalysisDate: createResponsiveStyle({
+    mobile: {
+      ...MobileOptimized.typography.caption,
+      color: Colors.textSecondary,
+      textAlign: 'center',
+      marginTop: responsiveSpacing.xs,
+    },
+    tablet: {
+      ...Typography.caption,
+      color: Colors.textSecondary,
+      textAlign: 'center',
+      marginTop: Spacing.sm,
+    }
+  }),
+  actionRow: createResponsiveStyle({
+    mobile: {
+      flexDirection: 'column',
+      marginTop: mobileSpacing.buttonSpacing,
+      gap: responsiveSpacing.sm,
+    },
+    tablet: {
+      flexDirection: 'row',
+      marginTop: Spacing.lg,
+      gap: Spacing.md,
+    }
+  }),
+  detailButton: createResponsiveStyle({
+    mobile: {
+      width: '100%',
+      minHeight: MobileOptimized.touchTarget.minHeight,
+    },
+    tablet: {
+      flex: 1,
+    }
+  }),
+  reAnalyzeButton: createResponsiveStyle({
+    mobile: {
+      width: '100%',
+      minHeight: MobileOptimized.touchTarget.minHeight,
+    },
+    tablet: {
+      flex: 1,
+    }
+  }),
+  bottomSpacer: createResponsiveStyle({
+    mobile: {
+      height: responsiveSpacing.lg,
+    },
+    tablet: {
+      height: Spacing.xl,
+    }
+  }),
 });

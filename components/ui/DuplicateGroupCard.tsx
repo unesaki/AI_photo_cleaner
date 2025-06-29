@@ -18,6 +18,7 @@ interface DuplicateGroupCardProps {
   deletedPhotos?: Set<string>;
   onPhotoSelect: (photoId: string) => void;
   onSelectAllDuplicates: (group: DuplicateGroup) => void;
+  onMarkAsNotDuplicate?: (group: DuplicateGroup) => void;
   showPhotoDetails?: boolean;
   compactMode?: boolean;
 }
@@ -30,6 +31,7 @@ export function DuplicateGroupCard({
   deletedPhotos = new Set(),
   onPhotoSelect,
   onSelectAllDuplicates,
+  onMarkAsNotDuplicate,
   showPhotoDetails = true,
   compactMode = false
 }: DuplicateGroupCardProps) {
@@ -143,7 +145,7 @@ export function DuplicateGroupCard({
               {photo.createdAt && (
                 <View style={styles.dateInfo}>
                   <ThemedText style={styles.dateText}>
-                    {formatCreatedDate(photo.createdAt)}
+                    {formatCreatedDate(new Date(photo.createdAt).getTime())}
                   </ThemedText>
                 </View>
               )}
@@ -210,13 +212,24 @@ export function DuplicateGroupCard({
             </ThemedText>
           </View>
         )}
-        <ActionButton
-          title="重複を選択"
-          onPress={() => onSelectAllDuplicates(group)}
-          variant="secondary"
-          size="small"
-          style={styles.selectAllButton}
-        />
+        <View style={styles.buttonGroup}>
+          <ActionButton
+            title="重複を選択"
+            onPress={() => onSelectAllDuplicates(group)}
+            variant="secondary"
+            size="small"
+            style={styles.groupActionButton}
+          />
+          {onMarkAsNotDuplicate && (
+            <ActionButton
+              title="重複ではない"
+              onPress={() => onMarkAsNotDuplicate(group)}
+              variant="secondary"
+              size="small"
+              style={styles.groupActionButton}
+            />
+          )}
+        </View>
       </View>
     </View>
   );
@@ -350,8 +363,12 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontWeight: '600',
   },
-  selectAllButton: {
-    minWidth: 80,
+  buttonGroup: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+  },
+  groupActionButton: {
+    minWidth: 60,
   },
   photosContainer: {
     paddingHorizontal: Spacing.lg,
