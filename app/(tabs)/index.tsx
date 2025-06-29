@@ -7,9 +7,9 @@ import { StatCard } from '@/components/ui/StatCard';
 import { ProgressCard } from '@/components/ui/ProgressCard';
 import { ThemedText } from '@/components/ThemedText';
 import { Colors, Spacing, Typography, MobileOptimized } from '@/src/utils/constants';
-import { isMobile, getResponsiveSpacing, getMobileSpacing, createResponsiveStyle } from '@/src/utils/responsive';
+import { getResponsiveSpacing, getMobileSpacing, createResponsiveStyle } from '@/src/utils/responsive';
 import { databaseService, duplicateDetectionService, photoLibraryService } from '@/src/services';
-import type { AnalysisSession, AnalysisResult, PhotoMetadata } from '@/src/types';
+import type { AnalysisSession, PhotoMetadata } from '@/src/types';
 
 export default function DashboardScreen() {
   const [photoCount, setPhotoCount] = useState(0);
@@ -189,7 +189,8 @@ export default function DashboardScreen() {
           console.log(`🧠 Analysis progress: ${progress}% - ${message}`);
           setAnalysisProgress(0.3 + (progress / 100) * 0.7); // 30-100%
           setAnalysisMessage(message);
-        }
+        },
+        true // Clear existing groups for fresh analysis
       );
       
       console.log('🧠 Analysis result:', result);

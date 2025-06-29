@@ -9,7 +9,8 @@ import {
 import { Image } from 'expo-image';
 import { ThemedText } from '../ThemedText';
 import { ActionButton } from './ActionButton';
-import { Colors, Spacing, Typography } from '../../src/utils/constants';
+import { Colors, Spacing, Typography, MobileOptimized } from '../../src/utils/constants';
+import { createResponsiveStyle, getResponsiveSpacing } from '../../src/utils/responsive';
 import type { DuplicateGroup, PhotoMetadata } from '../../src/types';
 
 interface DuplicateGroupCardProps {
@@ -264,42 +265,81 @@ export function DuplicateGroupCard({
   );
 }
 
+const responsiveSpacing = getResponsiveSpacing();
+
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    marginBottom: Spacing.lg,
-    overflow: 'hidden',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
+  container: createResponsiveStyle({
+    mobile: {
+      backgroundColor: Colors.card,
+      borderRadius: 8,
+      marginBottom: responsiveSpacing.md,
+      overflow: 'hidden',
+      elevation: 2,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.1,
+      shadowRadius: 3,
+    },
+    tablet: {
+      backgroundColor: Colors.card,
+      borderRadius: 12,
+      marginBottom: Spacing.lg,
+      overflow: 'hidden',
+      elevation: 2,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+    }
+  }),
   compactContainer: {
     marginBottom: Spacing.md,
   },
-  compactHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: Spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.gray100,
-  },
+  compactHeader: createResponsiveStyle({
+    mobile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: responsiveSpacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: Colors.gray100,
+    },
+    tablet: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: Spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: Colors.gray100,
+    }
+  }),
   compactHeaderLeft: {
     flex: 1,
   },
-  compactTitle: {
-    ...Typography.body,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: 2,
-  },
-  compactSubtitle: {
-    ...Typography.caption,
-    color: Colors.textSecondary,
-  },
+  compactTitle: createResponsiveStyle({
+    mobile: {
+      ...MobileOptimized.typography.body,
+      fontWeight: '600',
+      color: Colors.textPrimary,
+      marginBottom: 2,
+    },
+    tablet: {
+      ...Typography.body,
+      fontWeight: '600',
+      color: Colors.textPrimary,
+      marginBottom: 2,
+    }
+  }),
+  compactSubtitle: createResponsiveStyle({
+    mobile: {
+      ...MobileOptimized.typography.caption,
+      color: Colors.textSecondary,
+    },
+    tablet: {
+      ...Typography.caption,
+      color: Colors.textSecondary,
+    }
+  }),
   compactHeaderRight: {
     flexDirection: 'row',
     alignItems: 'center',

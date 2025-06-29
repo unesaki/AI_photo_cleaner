@@ -48,15 +48,36 @@ export class DuplicateDetectionService {
     return metadata.hashValue;
   }
   
+  /**
+   * Clear all existing duplicate groups for fresh analysis
+   */
+  private async clearAllDuplicateGroups(): Promise<void> {
+    try {
+      await databaseService.clearAllDuplicateGroups();
+      console.log('🔬 ✅ Cleared all existing duplicate groups');
+    } catch (error) {
+      console.error('🔬 ❌ Failed to clear duplicate groups:', error);
+      throw error;
+    }
+  }
+  
   async analyzePhotos(
     photos: Photo[], 
-    onProgress?: (progress: number, message: string) => void
+    onProgress?: (progress: number, message: string) => void,
+    clearExistingGroups: boolean = false
   ): Promise<AnalysisResult> {
     console.log('🔬 analyzePhotos started with', photos.length, 'photos');
     const startTime = Date.now();
     let analyzedCount = 0;
     
     try {
+      // Clear existing duplicate groups if requested
+      if (clearExistingGroups) {
+        console.log('🔬 Clearing existing duplicate groups...');
+        await this.clearAllDuplicateGroups();
+        onProgress?.(5, '既存のグループをクリア中...');
+      }
+      
       // Create analysis session
       console.log('🔬 Creating analysis session...');
       const sessionUuid = await databaseService.createAnalysisSession(photos.length);
@@ -191,8 +212,19 @@ export class DuplicateDetectionService {
           }
           
           if (photoMetadataList.length > 1) {
-            // Use hash from first photo as group hash
-            const groupHash = photoMetadataList[0].hashValue || 'unknown';
+            // Create a representative group hash from all similar photos
+            // Sort hashes to ensure consistent group identification
+            const allHashes = photoMetadataList
+              .map(p => p.hashValue)
+              .filter(h => h)
+              .sort();
+            
+            // Use the most common hash pattern or first hash as group representative
+            const groupHash = allHashes[0] || 'unknown';
+            
+            console.log(`📊 Creating group with ${photoMetadataList.length} photos`);
+            console.log(`📊 Representative hash: ${groupHash.substring(0, 16)}...`);
+            console.log(`📊 All hashes: ${allHashes.map(h => h?.substring(0, 8)).join(', ')}`);
             
             // Create duplicate group in database
             const photoIds = photoMetadataList.map(p => typeof p.id === 'string' ? parseInt(p.id) : p.id);
@@ -279,28 +311,70 @@ export class DuplicateDetectionService {
     let deletedCount = 0;
     
     try {
-      // Delete from device
-      const deleteResult = await photoService.deletePhotos(photoIdsToDelete);
-      deletedCount = deleteResult.deletedCount;
+      console.log('🗑️ Starting deletion process...');
+      console.log('🗑️ Photo IDs to delete:', photoIdsToDelete);
       
-      // Mark as deleted in database
+      // Get photo metadata including localIdentifier for actual deletion
+      const photosToDelete = [];
       for (const photoId of photoIdsToDelete) {
         try {
           const id = typeof photoId === 'string' ? parseInt(photoId) : photoId;
-          await databaseService.updatePhoto(id, { isDeleted: true });
-        } catch {
-          errors.push(`Failed to update database for photo ${photoId}`);
+          const photo = await databaseService.getPhoto(id);
+          if (photo) {
+            photosToDelete.push(photo);
+            console.log(`🗑️ Found photo to delete: ${photo.fileName} (${photo.localIdentifier})`);
+          } else {
+            console.warn(`🗑️ ⚠️ Photo not found in database: ID ${photoId}`);
+            errors.push(`Photo not found: ${photoId}`);
+          }
+        } catch (error) {
+          console.error(`🗑️ ❌ Failed to get photo metadata for ID ${photoId}:`, error);
+          errors.push(`Failed to get photo metadata: ${photoId}`);
         }
       }
       
+      if (photosToDelete.length === 0) {
+        console.warn('🗑️ ⚠️ No photos found to delete');
+        return {
+          success: false,
+          deletedCount: 0,
+          errors: ['No photos found to delete']
+        };
+      }
+      
+      // Delete from device using localIdentifiers
+      console.log('🗑️ Deleting from device...');
+      const localIdentifiers = photosToDelete.map(photo => photo.localIdentifier);
+      const deleteResult = await photoService.deletePhotos(localIdentifiers);
+      deletedCount = deleteResult.deletedCount;
+      console.log(`🗑️ Device deletion result: ${deletedCount}/${localIdentifiers.length} deleted`);
+      
+      // Mark as deleted in database
+      console.log('🗑️ Updating database...');
+      for (const photo of photosToDelete) {
+        try {
+          const id = typeof photo.id === 'string' ? parseInt(photo.id) : photo.id;
+          await databaseService.updatePhoto(id, { isDeleted: true });
+          console.log(`🗑️ ✅ Marked as deleted in DB: ${photo.fileName}`);
+        } catch (error) {
+          console.error(`🗑️ ❌ Failed to update database for photo ${photo.fileName}:`, error);
+          errors.push(`Failed to update database for photo ${photo.fileName}`);
+        }
+      }
+      
+      const success = deletedCount > 0;
+      console.log(`🗑️ Deletion complete: success=${success}, deleted=${deletedCount}, errors=${errors.length}`);
+      
       return {
-        success: deletedCount > 0,
+        success,
         deletedCount,
         errors
       };
       
     } catch (error) {
-      errors.push(error instanceof Error ? error.message : 'Unknown error');
+      console.error('🗑️ ❌ Deletion process failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      errors.push(errorMessage);
       return {
         success: false,
         deletedCount: 0,

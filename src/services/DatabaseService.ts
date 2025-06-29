@@ -66,14 +66,31 @@ export class DatabaseService {
     if (!this.db) throw new Error('Database not initialized');
 
     // Check if photo already exists
-    const exists = await this.checkPhotoExists(photo.localIdentifier);
-    if (exists) {
-      console.log('Photo already exists, skipping:', photo.fileName);
-      // Return existing photo ID
-      const existingPhoto = await this.db.getFirstAsync(`
-        SELECT id FROM photos WHERE local_identifier = ?
-      `, [photo.localIdentifier]);
-      return (existingPhoto as any).id;
+    const existingPhoto = await this.db.getFirstAsync(`
+      SELECT id, hash_value FROM photos WHERE local_identifier = ?
+    `, [photo.localIdentifier]);
+    
+    if (existingPhoto) {
+      const existingId = (existingPhoto as any).id;
+      const existingHash = (existingPhoto as any).hash_value;
+      
+      // Check if hash needs to be updated
+      if (photo.hashValue && photo.hashValue !== existingHash) {
+        console.log(`📸 Updating hash for existing photo: ${photo.fileName}`);
+        console.log(`📸 Old hash: ${existingHash?.substring(0, 16)}...`);
+        console.log(`📸 New hash: ${photo.hashValue.substring(0, 16)}...`);
+        
+        await this.db.runAsync(`
+          UPDATE photos SET 
+            hash_value = ?, 
+            updated_at = CURRENT_TIMESTAMP 
+          WHERE id = ?
+        `, [photo.hashValue, existingId]);
+      } else {
+        console.log(`📸 Photo already exists with current hash, skipping: ${photo.fileName}`);
+      }
+      
+      return existingId;
     }
 
     try {
@@ -166,14 +183,55 @@ export class DatabaseService {
 
       // Check if group with this hash already exists
       const existingGroup = await this.db.getFirstAsync(`
-        SELECT id FROM duplicate_groups WHERE group_hash = ?
+        SELECT id, photo_count FROM duplicate_groups WHERE group_hash = ?
       `, [groupHash]);
 
       if (existingGroup) {
-        await this.db.execAsync('ROLLBACK');
         const existingId = (existingGroup as any).id;
+        const existingPhotoCount = (existingGroup as any).photo_count;
+        
         console.log(`📊 ⚠️ Group with hash ${groupHash.substring(0, 16)}... already exists (ID: ${existingId})`);
-        console.log(`📊 🔄 Returning existing group ID instead of creating new one`);
+        console.log(`📊 Existing group has ${existingPhotoCount} photos, new group would have ${photoIds.length} photos`);
+        
+        // Check if any of the new photos are already in the existing group
+        const existingPhotoIds = await this.db.getAllAsync(`
+          SELECT photo_id FROM duplicate_group_photos WHERE group_id = ?
+        `, [existingId]);
+        
+        const existingIds = existingPhotoIds.map(row => (row as any).photo_id);
+        const newPhotoIds = photoIds.filter(id => !existingIds.includes(id));
+        
+        if (newPhotoIds.length > 0) {
+          console.log(`📊 🔄 Adding ${newPhotoIds.length} new photos to existing group ${existingId}`);
+          
+          // Add new photos to existing group
+          for (let i = 0; i < newPhotoIds.length; i++) {
+            const photoId = newPhotoIds[i];
+            const isRecommendedKeep = false; // New photos are not recommended to keep
+            
+            await this.db.runAsync(`
+              INSERT INTO duplicate_group_photos (group_id, photo_id, is_recommended_keep)
+              VALUES (?, ?, ?)
+            `, [existingId, photoId, isRecommendedKeep ? 1 : 0]);
+            
+            // Update photo as duplicate
+            await this.db.runAsync(`
+              UPDATE photos SET is_duplicate = TRUE WHERE id = ?
+            `, [photoId]);
+          }
+          
+          // Update group photo count and total size
+          const newPhotoCount = existingPhotoCount + newPhotoIds.length;
+          await this.db.runAsync(`
+            UPDATE duplicate_groups SET photo_count = ? WHERE id = ?
+          `, [newPhotoCount, existingId]);
+          
+          await this.updateGroupTotalSize(existingId);
+        } else {
+          console.log(`📊 🔄 All photos already in existing group ${existingId}, skipping`);
+        }
+        
+        await this.db.execAsync('COMMIT');
         return existingId;
       }
 
@@ -286,6 +344,40 @@ export class DatabaseService {
       // Rollback on error
       await this.db.runAsync('ROLLBACK');
       console.error(`❌ Failed to mark group ${groupId} as not duplicate:`, error);
+      throw error;
+    }
+  }
+
+  async clearAllDuplicateGroups(): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    
+    try {
+      // Begin transaction
+      await this.db.runAsync('BEGIN TRANSACTION');
+      
+      // Reset duplicate flags on all photos
+      await this.db.runAsync(`
+        UPDATE photos SET is_duplicate = FALSE WHERE is_duplicate = TRUE
+      `);
+      
+      // Clear duplicate group associations
+      await this.db.runAsync(`
+        DELETE FROM duplicate_group_photos
+      `);
+      
+      // Clear duplicate groups
+      await this.db.runAsync(`
+        DELETE FROM duplicate_groups
+      `);
+      
+      // Commit transaction
+      await this.db.runAsync('COMMIT');
+      
+      console.log('✅ Successfully cleared all duplicate groups');
+    } catch (error) {
+      // Rollback on error
+      await this.db.runAsync('ROLLBACK');
+      console.error('❌ Failed to clear duplicate groups:', error);
       throw error;
     }
   }

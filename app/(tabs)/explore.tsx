@@ -14,7 +14,7 @@ import { DuplicateGroupCard } from '@/components/ui/DuplicateGroupCard';
 import { DeletionConfirmDialog } from '@/components/ui/DeletionConfirmDialog';
 import { ThemedText } from '@/components/ThemedText';
 import { Colors, Spacing, Typography, MobileOptimized } from '@/src/utils/constants';
-import { isMobile, getResponsiveSpacing, getMobileSpacing, createResponsiveStyle } from '@/src/utils/responsive';
+import { getResponsiveSpacing, getMobileSpacing, createResponsiveStyle } from '@/src/utils/responsive';
 import { databaseService, duplicateDetectionService } from '@/src/services';
 import type { DuplicateGroup, PhotoMetadata } from '@/src/types';
 
@@ -562,8 +562,8 @@ const styles = StyleSheet.create({
   }),
   mainActionButtons: createResponsiveStyle({
     mobile: {
-      flexDirection: 'column',
-      gap: responsiveSpacing.xs,
+      flexDirection: 'row',
+      gap: responsiveSpacing.sm,
     },
     tablet: {
       flexDirection: 'row',
@@ -572,7 +572,7 @@ const styles = StyleSheet.create({
   }),
   mainActionButton: createResponsiveStyle({
     mobile: {
-      width: '100%',
+      flex: 1,
       minHeight: MobileOptimized.touchTarget.minHeight,
     },
     tablet: {
@@ -590,8 +590,8 @@ const styles = StyleSheet.create({
   }),
   statsRow: createResponsiveStyle({
     mobile: {
-      flexDirection: 'row',
-      gap: responsiveSpacing.xs,
+      flexDirection: 'column',
+      gap: responsiveSpacing.sm,
     },
     tablet: {
       flexDirection: 'row',

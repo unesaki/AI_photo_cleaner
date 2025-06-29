@@ -6,7 +6,8 @@ import {
   ViewStyle,
   TextStyle
 } from 'react-native';
-import { Colors, Typography, Spacing, BorderRadius } from '../../src/utils/constants';
+import { Colors, Typography, Spacing, BorderRadius, MobileOptimized } from '../../src/utils/constants';
+import { isMobile } from '../../src/utils/responsive';
 
 interface ActionButtonProps {
   title: string;
@@ -35,22 +36,23 @@ export function ActionButton({
       flexDirection: 'row'
     };
 
-    // Size styles
+    // Size styles - mobile optimized
+    const mobile = isMobile();
     switch (size) {
       case 'small':
-        baseStyle.paddingHorizontal = Spacing.md;
-        baseStyle.paddingVertical = Spacing.sm;
-        baseStyle.minHeight = 36;
+        baseStyle.paddingHorizontal = mobile ? Spacing.sm : Spacing.md;
+        baseStyle.paddingVertical = mobile ? Spacing.xs : Spacing.sm;
+        baseStyle.minHeight = mobile ? 36 : 36;
         break;
       case 'large':
-        baseStyle.paddingHorizontal = Spacing.xl;
-        baseStyle.paddingVertical = Spacing.md;
-        baseStyle.minHeight = 52;
+        baseStyle.paddingHorizontal = mobile ? Spacing.lg : Spacing.xl;
+        baseStyle.paddingVertical = mobile ? Spacing.sm : Spacing.md;
+        baseStyle.minHeight = mobile ? 48 : 52;
         break;
       default: // medium
-        baseStyle.paddingHorizontal = Spacing.lg;
-        baseStyle.paddingVertical = Spacing.md;
-        baseStyle.minHeight = 44;
+        baseStyle.paddingHorizontal = mobile ? Spacing.md : Spacing.lg;
+        baseStyle.paddingVertical = mobile ? Spacing.sm : Spacing.md;
+        baseStyle.minHeight = mobile ? MobileOptimized.touchTarget.minHeight : 44;
     }
 
     // Variant styles
@@ -76,8 +78,9 @@ export function ActionButton({
   };
 
   const getTextStyle = (): TextStyle => {
+    const mobile = isMobile();
     const baseStyle: TextStyle = {
-      ...Typography.button,
+      ...(mobile ? MobileOptimized.typography.button : Typography.button),
       textAlign: 'center'
     };
 

@@ -92,24 +92,53 @@ export class PhotoService {
   }
 
   async deletePhotos(photoIds: string[]): Promise<{ success: boolean; deletedCount: number }> {
-    if (!this.hasPermission) {
-      throw new Error('Media library permission denied');
+    console.log('📱 Checking media library permissions for deletion...');
+    
+    // Always check permissions before deletion
+    const hasPermission = await this.checkPermissions();
+    if (!hasPermission) {
+      console.log('📱 ❌ No permission, requesting permissions...');
+      const granted = await this.requestPermissions();
+      if (!granted) {
+        console.error('📱 ❌ Media library permission denied');
+        throw new Error('Media library permission denied. Please grant photo access in Settings.');
+      }
+      console.log('📱 ✅ Permission granted');
+    } else {
+      console.log('📱 ✅ Permission already granted');
     }
 
     try {
-      const deletePromises = photoIds.map(id => MediaLibrary.deleteAssetsAsync([id]));
+      console.log(`📱 Attempting to delete ${photoIds.length} photos...`);
+      console.log('📱 Photo IDs:', photoIds.slice(0, 3), photoIds.length > 3 ? '...' : '');
+      
+      const deletePromises = photoIds.map(async (id) => {
+        try {
+          console.log(`📱 Deleting photo with ID: ${id}`);
+          const result = await MediaLibrary.deleteAssetsAsync([id]);
+          console.log(`📱 Deletion result for ${id}:`, result);
+          return result;
+        } catch (error) {
+          console.error(`📱 ❌ Failed to delete photo ${id}:`, error);
+          return false;
+        }
+      });
+      
       const results = await Promise.allSettled(deletePromises);
+      console.log('📱 All deletion results:', results);
       
       const deletedCount = results.filter(result => 
         result.status === 'fulfilled' && result.value === true
       ).length;
+
+      console.log(`📱 Successfully deleted ${deletedCount}/${photoIds.length} photos`);
 
       return {
         success: deletedCount > 0,
         deletedCount
       };
     } catch (error) {
-      console.error('Failed to delete photos:', error);
+      console.error('📱 ❌ Failed to delete photos:', error);
       return { success: false, deletedCount: 0 };
     }
   }
